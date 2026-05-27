@@ -54,6 +54,7 @@ type Settings struct {
 	SockTimeout time.Duration
 	ProxyReload time.Duration
 	Foreground  bool
+	Quiet       bool
 	Log         int
 	LogLevel    slog.Level
 }
@@ -394,6 +395,8 @@ func applyValues(cfg *Config, values map[string]string) error {
 				cfg.Settings.Foreground = true
 				cfg.Settings.LogLevel = slog.LevelDebug
 			}
+		case "quiet", "silent":
+			cfg.Settings.Quiet = parseBool(rawValue)
 		default:
 			// Ignore unknown keys to remain compatible with px.ini extras.
 		}

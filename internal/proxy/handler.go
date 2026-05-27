@@ -49,12 +49,15 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = r.Body.Close()
 	route, err := s.resolveRoute(ctx, r)
 	if err != nil {
+		s.logger.Debug("route resolution failed", "host", r.Host, "err", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	if route.Direct {
+		s.logger.Debug("HTTP direct", "method", r.Method, "host", r.Host)
 		resp, err := s.roundTripDirect(ctx, r, body)
 		if err != nil {
+			s.logger.Debug("HTTP direct failed", "host", r.Host, "err", err)
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
@@ -62,11 +65,13 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		copyResponse(w, resp)
 		return
 	}
+	s.logger.Debug("HTTP via proxy", "method", r.Method, "host", r.Host, "proxies", route.Proxies)
 	var lastErr error
 	for _, upstream := range route.Proxies {
 		resp, err := s.roundTripProxy(ctx, r, body, upstream)
 		if err != nil {
 			lastErr = err
+			s.logger.Debug("HTTP proxy attempt failed", "proxy", upstream, "err", err)
 			continue
 		}
 		defer func() { _ = resp.Body.Close() }()
@@ -84,18 +89,22 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	route, err := s.resolveRoute(ctx, r)
 	if err != nil {
+		s.logger.Debug("CONNECT route resolution failed", "host", r.Host, "err", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	var upstream net.Conn
 	if route.Direct {
+		s.logger.Debug("CONNECT direct", "host", targetHostPort(r))
 		upstream, err = net.DialTimeout("tcp", targetHostPort(r), s.cfg.Settings.SockTimeout)
 	} else {
+		s.logger.Debug("CONNECT via proxy", "host", targetHostPort(r), "proxies", route.Proxies)
 		for _, proxyAddr := range route.Proxies {
 			upstream, err = s.connectViaProxy(ctx, r, proxyAddr)
 			if err == nil {
 				break
 			}
+			s.logger.Debug("CONNECT proxy attempt failed", "proxy", proxyAddr, "err", err)
 		}
 	}
 	if err != nil {
@@ -124,34 +133,44 @@ func (s *Server) resolveRoute(ctx context.Context, r *http.Request) (route, erro
 		host = strings.TrimSuffix(r.Host, ":443")
 	}
 	if s.noproxy != nil && s.noproxy.MatchHost(ctx, host, network.DefaultResolver) {
+		s.logger.Debug("route: noproxy match", "host", host)
 		return route{Direct: true}, nil
 	}
 	if s.pac != nil {
 		result := s.pac.FindProxyForURL(ctx, absoluteURL(r), host)
 		parsed := parsePACResult(result)
+		s.logger.Debug("route: PAC result", "host", host, "raw", result, "proxies", parsed)
 		if len(parsed) == 0 {
 			return route{Direct: true}, nil
 		}
 		return route{Proxies: parsed}, nil
 	}
 	if len(s.cfg.Proxy.Server) > 0 {
+		s.logger.Debug("route: configured servers", "host", host, "servers", s.cfg.Proxy.Server)
 		return route{Proxies: s.cfg.Proxy.Server}, nil
 	}
 	info, err := s.platform.LoadProxyInfo(ctx, absoluteURL(r))
 	if err == nil {
+		s.logger.Debug("route: platform proxy info", "pac", info.PAC, "servers", info.Servers)
 		if info.PAC != "" && s.pac == nil {
+			s.logger.Info("discovered PAC from platform", "pac", info.PAC)
 			s.pac = pac.New(info.PAC, s.cfg.Proxy.PACEncoding, s.cfg.Settings.ProxyReload, s.logger)
 			result := s.pac.FindProxyForURL(ctx, absoluteURL(r), host)
 			parsed := parsePACResult(result)
+			s.logger.Debug("route: PAC (from platform) result", "host", host, "raw", result, "proxies", parsed)
 			if len(parsed) == 0 {
 				return route{Direct: true}, nil
 			}
 			return route{Proxies: parsed}, nil
 		}
 		if len(info.Servers) > 0 {
+			s.logger.Debug("route: platform servers", "host", host, "servers", info.Servers)
 			return route{Proxies: info.Servers}, nil
 		}
+	} else {
+		s.logger.Debug("route: platform proxy discovery failed", "err", err)
 	}
+	s.logger.Debug("route: direct (no upstream)", "host", host)
 	return route{Direct: true}, nil
 }
 
@@ -190,8 +209,8 @@ func (s *Server) roundTripProxy(ctx context.Context, r *http.Request, body []byt
 			_ = conn.Close()
 			return nil, err
 		}
+		s.logger.Debug("upstream HTTP proxy response", "status", resp.StatusCode, "attempt", attempt, "proxy", proxyAddr)
 		if resp.StatusCode != http.StatusProxyAuthRequired || strings.EqualFold(s.cfg.Proxy.Auth, "NONE") {
-			// Attach conn to body so it gets closed when caller closes resp.Body
 			resp.Body = &connBodyCloser{ReadCloser: resp.Body, conn: conn}
 			return resp, nil
 		}
@@ -199,10 +218,10 @@ func (s *Server) roundTripProxy(ctx context.Context, r *http.Request, body []byt
 		if session == nil {
 			scheme, challenge, ok := auth.ChooseScheme(s.cfg.Proxy.Auth, challenges)
 			if !ok {
-				// No compatible scheme - return the 407 as-is
 				resp.Body = &connBodyCloser{ReadCloser: resp.Body, conn: conn}
 				return resp, nil
 			}
+			s.logger.Debug("upstream HTTP auth", "scheme", scheme, "proxy", proxyAddr, "target", normalizeProxyAddr(proxyAddr))
 			session, err = s.upstream.NewSession(scheme, proxyAddr)
 			if err != nil {
 				_ = conn.Close()
@@ -220,7 +239,6 @@ func (s *Server) roundTripProxy(ctx context.Context, r *http.Request, body []byt
 				return nil, err
 			}
 		}
-		// Drain response body before reusing connection for next auth step
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 	}
@@ -251,6 +269,7 @@ func (s *Server) connectViaProxy(ctx context.Context, r *http.Request, proxyAddr
 			_ = conn.Close()
 			return nil, err
 		}
+		s.logger.Debug("CONNECT proxy response", "status", resp.StatusCode, "attempt", attempt, "proxy", proxyAddr)
 		if resp.StatusCode == http.StatusOK {
 			return conn, nil
 		}
@@ -266,6 +285,7 @@ func (s *Server) connectViaProxy(ctx context.Context, r *http.Request, proxyAddr
 			if !ok {
 				return nil, errors.New("no compatible upstream auth scheme")
 			}
+			s.logger.Debug("upstream CONNECT auth", "scheme", scheme, "proxy", proxyAddr, "target", normalizeProxyAddr(proxyAddr))
 			session, err = s.upstream.NewSession(scheme, proxyAddr)
 			if err != nil {
 				return nil, err
