@@ -1,0 +1,7 @@
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY px /px
+USER nonroot:nonroot
+EXPOSE 3128
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/px", "--health-check", "--port=3128"]
+ENTRYPOINT ["/px"]
+CMD ["--gateway"]
