@@ -12,13 +12,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/marbaced/migrate-px/px-go/internal/auth"
-	"github.com/marbaced/migrate-px/px-go/internal/clientauth"
-	"github.com/marbaced/migrate-px/px-go/internal/config"
-	"github.com/marbaced/migrate-px/px-go/internal/kerberos"
-	"github.com/marbaced/migrate-px/px-go/internal/network"
-	"github.com/marbaced/migrate-px/px-go/internal/pac"
-	"github.com/marbaced/migrate-px/px-go/internal/platform"
+	"github.com/BlackDark/px-go/internal/auth"
+	"github.com/BlackDark/px-go/internal/clientauth"
+	"github.com/BlackDark/px-go/internal/config"
+	"github.com/BlackDark/px-go/internal/kerberos"
+	"github.com/BlackDark/px-go/internal/network"
+	"github.com/BlackDark/px-go/internal/pac"
+	"github.com/BlackDark/px-go/internal/platform"
 )
 
 type connContextKey struct{}

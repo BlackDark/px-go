@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/marbaced/migrate-px/px-go/internal/auth"
+	"github.com/BlackDark/px-go/internal/auth"
 )
 
 func (h *Handler) verifyDigest(r *http.Request, state *State, header string) bool {

@@ -12,11 +12,11 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/BlackDark/px-go/internal/config"
+	"github.com/BlackDark/px-go/internal/kerberos"
 	krbclient "github.com/jcmturner/gokrb5/v8/client"
 	krbconfig "github.com/jcmturner/gokrb5/v8/config"
 	krbspnego "github.com/jcmturner/gokrb5/v8/spnego"
-	"github.com/marbaced/migrate-px/px-go/internal/config"
-	"github.com/marbaced/migrate-px/px-go/internal/kerberos"
 	keyring "github.com/zalando/go-keyring"
 )
 

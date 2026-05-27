@@ -1,4 +1,4 @@
-module github.com/marbaced/migrate-px/px-go
+module github.com/BlackDark/px-go
 
 go 1.25.0
 

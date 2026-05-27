@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/marbaced/migrate-px/px-go/internal/config"
-	"github.com/marbaced/migrate-px/px-go/internal/proxy"
+	"github.com/BlackDark/px-go/internal/config"
+	"github.com/BlackDark/px-go/internal/proxy"
 )
 
 func TestDirectHTTPProxy(t *testing.T) {

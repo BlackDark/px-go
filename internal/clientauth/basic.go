@@ -3,7 +3,7 @@ package clientauth
 import (
 	"strings"
 
-	"github.com/marbaced/migrate-px/px-go/internal/config"
+	"github.com/BlackDark/px-go/internal/config"
 	keyring "github.com/zalando/go-keyring"
 )
 

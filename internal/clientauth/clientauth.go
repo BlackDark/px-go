@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BlackDark/px-go/internal/config"
 	ntlmserver "github.com/bigkraig/go-ntlm/ntlm"
-	"github.com/marbaced/migrate-px/px-go/internal/config"
 	keyring "github.com/zalando/go-keyring"
 )
 

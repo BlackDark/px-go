@@ -12,9 +12,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/marbaced/migrate-px/px-go/internal/auth"
-	"github.com/marbaced/migrate-px/px-go/internal/network"
-	"github.com/marbaced/migrate-px/px-go/internal/pac"
+	"github.com/BlackDark/px-go/internal/auth"
+	"github.com/BlackDark/px-go/internal/network"
+	"github.com/BlackDark/px-go/internal/pac"
 )
 
 type route struct {

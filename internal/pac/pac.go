@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BlackDark/px-go/internal/config"
 	"github.com/dop251/goja"
-	"github.com/marbaced/migrate-px/px-go/internal/config"
 )
 
 type Evaluator struct {
