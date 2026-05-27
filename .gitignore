@@ -1,5 +1,6 @@
 # Binaries
 px
+!cmd/px
 px.exe
 *.exe
 *.dll

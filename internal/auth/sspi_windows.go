@@ -4,6 +4,7 @@ package auth
 
 import (
 	"fmt"
+	"net"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -53,9 +54,10 @@ type secWinntAuthIdentity struct {
 }
 
 type sspiClient struct {
-	cred    secHandle
-	ctx     secHandle
-	started bool
+	cred       secHandle
+	ctx        secHandle
+	targetName *uint16
+	started    bool
 }
 
 var (
@@ -76,11 +78,20 @@ type tokenServer interface {
 	Close() error
 }
 
-func newTokenClient(pkg string, creds Credentials) (tokenClient, error) {
+func newTokenClient(pkg string, creds Credentials, targetHost string) (tokenClient, error) {
 	client := &sspiClient{}
 	packageName, err := windows.UTF16PtrFromString(pkg)
 	if err != nil {
 		return nil, err
+	}
+	// Build SPN for the target proxy (e.g. "HTTP/proxy.example.com")
+	if targetHost != "" {
+		host := targetHost
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		spn := "HTTP/" + host
+		client.targetName, _ = windows.UTF16PtrFromString(spn)
 	}
 	var identity *secWinntAuthIdentity
 	var authBuf secWinntAuthIdentity
@@ -142,7 +153,7 @@ func (c *sspiClient) Next(in []byte) ([]byte, bool, error) {
 			}
 			return 0
 		}(),
-		0,
+		uintptr(unsafe.Pointer(c.targetName)),
 		uintptr(iscReqConnection),
 		0,
 		uintptr(securityNativeDrep),

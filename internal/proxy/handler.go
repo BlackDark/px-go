@@ -198,7 +198,7 @@ func (s *Server) roundTripProxy(ctx context.Context, r *http.Request, body []byt
 				resp.Body = &connBodyCloser{ReadCloser: resp.Body, conn: conn}
 				return resp, nil
 			}
-			session, err = s.upstream.NewSession(scheme)
+			session, err = s.upstream.NewSession(scheme, proxyAddr)
 			if err != nil {
 				_ = conn.Close()
 				return nil, err
@@ -256,7 +256,7 @@ func (s *Server) connectViaProxy(ctx context.Context, r *http.Request, proxyAddr
 			if !ok {
 				return nil, errors.New("no compatible upstream auth scheme")
 			}
-			session, err = s.upstream.NewSession(scheme)
+			session, err = s.upstream.NewSession(scheme, proxyAddr)
 			if err != nil {
 				return nil, err
 			}

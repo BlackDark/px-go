@@ -46,7 +46,7 @@ func CredentialsFromConfig(proxy config.Proxy) Credentials {
 	return Credentials{Username: proxy.Username, Password: password}
 }
 
-func (f Factory) NewSession(scheme string) (Session, error) {
+func (f Factory) NewSession(scheme string, targetHost string) (Session, error) {
 	scheme = strings.ToUpper(strings.TrimSpace(scheme))
 	switch scheme {
 	case "BASIC":
@@ -56,7 +56,7 @@ func (f Factory) NewSession(scheme string) (Session, error) {
 	case "NTLM":
 		return &NTLMSession{Credentials: f.Credentials}, nil
 	case "NEGOTIATE":
-		return newNegotiateSession(f.Credentials, f.Kerberos)
+		return newNegotiateSession(f.Credentials, f.Kerberos, targetHost)
 	default:
 		return nil, fmt.Errorf("unsupported auth scheme %s", scheme)
 	}
@@ -210,8 +210,8 @@ type NegotiateSession struct {
 	done     bool
 }
 
-func newNegotiateSession(creds Credentials, manager *kerberos.Manager) (Session, error) {
-	if sspi, err := newTokenClient("Negotiate", creds); err == nil {
+func newNegotiateSession(creds Credentials, manager *kerberos.Manager, targetHost string) (Session, error) {
+	if sspi, err := newTokenClient("Negotiate", creds, targetHost); err == nil {
 		return &NegotiateSession{creds: creds, kerberos: manager, sspi: sspi, usedSSPI: true}, nil
 	}
 	return &NegotiateSession{creds: creds, kerberos: manager}, nil

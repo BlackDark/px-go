@@ -7,6 +7,6 @@ type tokenClient interface {
 	Close() error
 }
 
-func newTokenClient(_ string, _ Credentials) (tokenClient, error) {
+func newTokenClient(_ string, _ Credentials, _ string) (tokenClient, error) {
 	return nil, errNoSSPI
 }

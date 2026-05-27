@@ -18,7 +18,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/marbaced/migrate-px/px-go/internal/version.Version={{ .Version }} -X github.com/marbaced/migrate-px/px-go/internal/version.Commit={{ .Commit }} -X github.com/marbaced/migrate-px/px-go/internal/version.Date={{ .Date }}
+      - -s -w -X github.com/BlackDark/px-go/internal/version.Version={{ .Version }} -X github.com/BlackDark/px-go/internal/version.Commit={{ .Commit }} -X github.com/BlackDark/px-go/internal/version.Date={{ .Date }}
 
 archives:
   - id: default
