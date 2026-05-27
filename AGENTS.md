@@ -50,6 +50,21 @@ go test -race ./...
 go test -v ./internal/proxy/ -run TestDirect
 ```
 
+### Integration Testing (automated)
+
+The `internal/proxy/integration_test.go` file contains full integration tests:
+- Direct HTTP/HTTPS proxying
+- All HTTP methods (GET, POST, PUT, DELETE, PATCH)
+- Noproxy bypass rules
+- Health endpoint
+- Client allow/deny with gateway mode
+- Upstream proxy chaining (HTTP + CONNECT)
+- Upstream proxy with Basic auth
+- Large body transfers (1MB)
+- Graceful shutdown via /PxQuit
+
+Run: `go test -v ./internal/proxy/ -run TestIntegration`
+
 ### Integration Testing (manual, Windows)
 
 1. Build for Windows: `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o px.exe ./cmd/px`
