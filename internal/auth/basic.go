@@ -20,3 +20,5 @@ func (s *BasicSession) Token(_ context.Context, _ *http.Request, _ string) (stri
 	raw := s.Credentials.Username + ":" + s.Credentials.Password
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(raw)), true, nil
 }
+
+func (s *BasicSession) Close() error { return nil }

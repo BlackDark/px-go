@@ -129,7 +129,7 @@ func (s *Server) resolveRoute(ctx context.Context, r *http.Request) (route, erro
 	if s.pac != nil {
 		result := s.pac.FindProxyForURL(ctx, absoluteURL(r), host)
 		parsed := parsePACResult(result)
-		if len(parsed) == 0 || strings.EqualFold(parsed[0], "DIRECT") {
+		if len(parsed) == 0 {
 			return route{Direct: true}, nil
 		}
 		return route{Proxies: parsed}, nil
@@ -143,7 +143,7 @@ func (s *Server) resolveRoute(ctx context.Context, r *http.Request) (route, erro
 			s.pac = pac.New(info.PAC, s.cfg.Proxy.PACEncoding, s.cfg.Settings.ProxyReload, s.logger)
 			result := s.pac.FindProxyForURL(ctx, absoluteURL(r), host)
 			parsed := parsePACResult(result)
-			if len(parsed) == 0 || strings.EqualFold(parsed[0], "DIRECT") {
+			if len(parsed) == 0 {
 				return route{Direct: true}, nil
 			}
 			return route{Proxies: parsed}, nil
@@ -170,6 +170,11 @@ func (s *Server) roundTripProxy(ctx context.Context, r *http.Request, body []byt
 	}
 	reader := bufio.NewReader(conn)
 	var session auth.Session
+	defer func() {
+		if session != nil {
+			_ = session.Close()
+		}
+	}()
 	var authHeader string
 	for attempt := 0; attempt < 4; attempt++ {
 		req := cloneForWrite(r, body, authHeader, strings.EqualFold(s.cfg.Proxy.Auth, "NONE"))
@@ -230,6 +235,11 @@ func (s *Server) connectViaProxy(ctx context.Context, r *http.Request, proxyAddr
 	}
 	reader := bufio.NewReader(conn)
 	var session auth.Session
+	defer func() {
+		if session != nil {
+			_ = session.Close()
+		}
+	}()
 	var authHeader string
 	for attempt := 0; attempt < 4; attempt++ {
 		if err := writeConnectRequest(conn, r, authHeader, strings.EqualFold(s.cfg.Proxy.Auth, "NONE")); err != nil {
@@ -302,10 +312,19 @@ func absoluteURL(r *http.Request) string {
 }
 
 func parsePACResult(raw string) []string {
-	parts := strings.Split(raw, ",")
+	// PAC results use semicolons as separators (e.g. "PROXY host:port; DIRECT")
+	// but some implementations may use commas
+	parts := strings.FieldsFunc(raw, func(r rune) bool { return r == ';' || r == ',' })
 	out := make([]string, 0, len(parts))
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
+		if part == "" || strings.EqualFold(part, "DIRECT") {
+			continue
+		}
+		// Strip PAC type prefixes: "PROXY host:port", "HTTP host:port", etc.
+		if idx := strings.IndexByte(part, ' '); idx >= 0 {
+			part = strings.TrimSpace(part[idx+1:])
+		}
 		if part != "" {
 			out = append(out, part)
 		}
@@ -314,6 +333,13 @@ func parsePACResult(raw string) []string {
 }
 
 func normalizeProxyAddr(raw string) string {
+	// Strip PAC-style prefixes (e.g. "PROXY host:port")
+	if idx := strings.IndexByte(raw, ' '); idx >= 0 {
+		prefix := strings.ToUpper(raw[:idx])
+		if prefix == "PROXY" || prefix == "HTTP" || prefix == "HTTPS" || prefix == "SOCKS" || prefix == "SOCKS5" {
+			raw = strings.TrimSpace(raw[idx+1:])
+		}
+	}
 	if strings.Contains(raw, "://") {
 		if parsed, err := url.Parse(raw); err == nil && parsed.Host != "" {
 			return parsed.Host

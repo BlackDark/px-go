@@ -28,6 +28,7 @@ type Credentials struct {
 type Session interface {
 	Scheme() string
 	Token(ctx context.Context, req *http.Request, challenge string) (header string, done bool, err error)
+	Close() error
 }
 
 type Factory struct {
@@ -218,6 +219,13 @@ func newNegotiateSession(creds Credentials, manager *kerberos.Manager, targetHos
 }
 
 func (s *NegotiateSession) Scheme() string { return "NEGOTIATE" }
+
+func (s *NegotiateSession) Close() error {
+	if s.sspi != nil {
+		return s.sspi.Close()
+	}
+	return nil
+}
 
 func (s *NegotiateSession) Token(ctx context.Context, req *http.Request, challenge string) (string, bool, error) {
 	if s.done {

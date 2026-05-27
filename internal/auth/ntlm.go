@@ -17,6 +17,8 @@ type NTLMSession struct {
 
 func (s *NTLMSession) Scheme() string { return "NTLM" }
 
+func (s *NTLMSession) Close() error { return nil }
+
 func (s *NTLMSession) Token(_ context.Context, _ *http.Request, challenge string) (string, bool, error) {
 	switch s.stage {
 	case 0:

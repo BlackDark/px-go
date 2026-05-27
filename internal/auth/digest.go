@@ -17,6 +17,8 @@ type DigestSession struct {
 
 func (s *DigestSession) Scheme() string { return "DIGEST" }
 
+func (s *DigestSession) Close() error { return nil }
+
 func (s *DigestSession) Token(_ context.Context, req *http.Request, challenge string) (string, bool, error) {
 	params := parseDigestChallenge(challenge)
 	s.nc++
