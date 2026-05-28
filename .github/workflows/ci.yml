@@ -40,3 +40,58 @@ jobs:
         with:
           version: v2.12.2
           args: --timeout=5m
+
+  build-artifacts:
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+          - goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+          - goos: darwin
+            goarch: amd64
+            suffix: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            suffix: darwin-arm64
+          - goos: windows
+            goarch: amd64
+            suffix: windows-amd64
+            ext: .exe
+          - goos: windows
+            goarch: arm64
+            suffix: windows-arm64
+            ext: .exe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+          cache: true
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          go build -ldflags="-s -w" -o px-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/px
+      - name: Build headless (Windows only)
+        if: ${{ matrix.goos == 'windows' }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          go build -ldflags="-s -w -H=windowsgui" -o pxw-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/px
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: px-${{ matrix.suffix }}
+          path: |
+            px-${{ matrix.suffix }}${{ matrix.ext }}
+            pxw-${{ matrix.suffix }}${{ matrix.ext }}

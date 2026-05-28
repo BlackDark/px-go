@@ -13,6 +13,18 @@ builds:
     goos:
       - linux
       - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/BlackDark/px-go/internal/version.Version={{ .Version }} -X github.com/BlackDark/px-go/internal/version.Commit={{ .Commit }} -X github.com/BlackDark/px-go/internal/version.Date={{ .Date }}
+
+  - id: px-windows-console
+    main: ./cmd/px
+    binary: px
+    env:
+      - CGO_ENABLED=0
+    goos:
       - windows
     goarch:
       - amd64
@@ -20,9 +32,22 @@ builds:
     ldflags:
       - -s -w -X github.com/BlackDark/px-go/internal/version.Version={{ .Version }} -X github.com/BlackDark/px-go/internal/version.Commit={{ .Commit }} -X github.com/BlackDark/px-go/internal/version.Date={{ .Date }}
 
+  - id: px-windows-headless
+    main: ./cmd/px
+    binary: pxw
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -H=windowsgui -X github.com/BlackDark/px-go/internal/version.Version={{ .Version }} -X github.com/BlackDark/px-go/internal/version.Commit={{ .Commit }} -X github.com/BlackDark/px-go/internal/version.Date={{ .Date }}
+
 archives:
   - id: default
-    builds: [px]
+    builds: [px, px-windows-console, px-windows-headless]
     formats: [tar.gz]
     format_overrides:
       - goos: windows

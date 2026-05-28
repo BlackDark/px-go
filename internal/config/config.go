@@ -94,8 +94,8 @@ func Default() Config {
 		},
 		Settings: Settings{
 			Workers:     1,
-			Threads:     32,
-			Idle:        30 * time.Second,
+			Threads:     128,
+			Idle:        300 * time.Second,
 			SockTimeout: 20 * time.Second,
 			ProxyReload: 60 * time.Second,
 			LogLevel:    slog.LevelInfo,

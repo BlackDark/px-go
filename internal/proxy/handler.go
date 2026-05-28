@@ -85,6 +85,17 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
+	// The semaphore is released before entering the long-lived relay phase.
+	// Use a flag to ensure exactly one release regardless of exit path.
+	semReleased := false
+	releaseSem := func() {
+		if !semReleased {
+			semReleased = true
+			<-s.sem
+		}
+	}
+	defer releaseSem()
+
 	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.Settings.SockTimeout*2)
 	defer cancel()
 	route, err := s.resolveRoute(ctx, r)
@@ -124,6 +135,9 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = clientRW.WriteString("HTTP/1.1 200 Connection established\r\n\r\n")
 	_ = clientRW.Flush()
+	// Release semaphore before relay — tunnel setup is done, the relay is just
+	// bidirectional I/O copying and must not hold a concurrency slot.
+	releaseSem()
 	Relay(clientConn, upstream, s.cfg.Settings.Idle)
 }
 

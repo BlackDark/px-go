@@ -207,15 +207,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	select {
 	case s.sem <- struct{}{}:
-		defer func() { <-s.sem }()
 	default:
 		http.Error(w, "busy", http.StatusServiceUnavailable)
 		return
 	}
 	if r.Method == http.MethodConnect {
+		// handleConnect releases the semaphore internally before relay
 		s.handleConnect(w, r)
 		return
 	}
+	defer func() { <-s.sem }()
 	s.handleHTTP(w, r)
 }
 

@@ -123,7 +123,6 @@ func logStartupInfo(logger *slog.Logger, cfg config.Config) {
 		logger.Info("upstream auth", "method", cfg.Proxy.Auth, "credentials", "SSPI/system")
 	}
 	logger.Info("settings",
-		"workers", cfg.Settings.Workers,
 		"threads", cfg.Settings.Threads,
 		"idle", cfg.Settings.Idle,
 		"socktimeout", cfg.Settings.SockTimeout,

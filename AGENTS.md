@@ -24,8 +24,12 @@ internal/
 # Build (Linux)
 go build ./cmd/px
 
-# Build (Windows cross-compile from WSL)
+# Build (Windows console — shows terminal window, use for interactive debugging / cmd / PowerShell)
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o px.exe ./cmd/px
+
+# Build (Windows headless — no console popup, for Task Scheduler and autostart)
+# --install automatically registers pxw.exe if it exists alongside px.exe
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w -H=windowsgui" -o pxw.exe ./cmd/px
 
 # Run with config
 ./px --config=px.ini --foreground
@@ -93,12 +97,13 @@ Run: `go test -v ./internal/proxy/ -run TestIntegration`
 golangci-lint run ./...
 ```
 
-CI uses `golangci-lint-action@v7` with golangci-lint v2.12.2. The `.golangci.yml` uses v2 config format.
+CI uses `golangci-lint-action@v9` with golangci-lint v2.12.2. The `.golangci.yml` uses v2 config format.
 
 ## CI/CD
 
-- **CI** (`.github/workflows/ci.yml`): Tests on ubuntu/macos/windows + lint
+- **CI** (`.github/workflows/ci.yml`): Tests on ubuntu/macos/windows + lint + build artifacts (6 platform variants uploaded; Windows artifacts contain both `px.exe` and `pxw.exe`)
 - **Release** (`.github/workflows/release.yml`): goreleaser on tag push, builds multi-platform binaries + Docker images
+- Windows release zips contain both `px.exe` (console) and `pxw.exe` (headless, `-H=windowsgui`); `--install` auto-prefers `pxw.exe` for autostart registry entry
 
 ## Key Design Decisions
 
@@ -107,6 +112,8 @@ CI uses `golangci-lint-action@v7` with golangci-lint v2.12.2. The `.golangci.yml
 - **PAC parsing**: Strips "PROXY " prefixes from PAC results; handles semicolons as separators
 - **Zero-cost debug logs**: `slog.Debug` calls are no-ops when log level > DEBUG — no allocations in hot path
 - **Platform proxy discovery**: On Windows uses WinHTTP to get IE proxy config (PAC URL or server list); logged at INFO on first discovery
+- **Semaphore release before relay**: CONNECT tunnels release their concurrency slot after setup (dial + auth) completes — the bidirectional relay runs without holding a slot, allowing hundreds of concurrent tunnels with threads=128
+- **Windows headless build**: `-H=windowsgui` prevents console popup; requires file-based logging (`log=1`)
 
 ## Config
 
@@ -120,3 +127,13 @@ See `px.ini` for full commented config. Key flags:
 - `--quiet`/`--silent`: Suppress startup info logs
 - `--test`: Start, make a test request, exit
 - `--version`, `--health-check`, `--quit`, `--restart`, `--install`, `--uninstall`
+
+### Recommended settings for AI agent workloads
+
+```ini
+[settings]
+threads = 128    # Only gates connection setup, not active tunnels
+idle = 300       # AI tools keep connections idle for minutes between bursts
+socktimeout = 20 # Auth handshake timeout
+log = 1          # File logging for headless operation
+```

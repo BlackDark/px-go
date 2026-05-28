@@ -80,8 +80,104 @@ Use `PX_*` names matching CLI/config keys, for example:
 
 ## Build and test
 ```bash
+# Quick (uses Makefile)
 make tidy fmt test build
+
+# Linux / macOS
+go build ./cmd/px
+
+# Windows — console build (px.exe): shows terminal window, use for interactive debugging
+# or running manually from cmd / PowerShell
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o px.exe ./cmd/px
+
+# Windows — headless build (pxw.exe): no console popup, for Task Scheduler and autostart
+# --install automatically registers pxw.exe if it exists alongside px.exe
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w -H=windowsgui" -o pxw.exe ./cmd/px
+
+# Run tests
+go test ./...
+
+# Run with race detector
+go test -race ./...
+
+# Run integration tests
+go test -v ./internal/proxy/ -run TestIntegration
 ```
+
+## Windows Task Scheduler
+
+px-go ships two Windows binaries in each release zip:
+
+- **`px.exe`** — console build: shows a terminal window, use for interactive debugging or running manually from cmd / PowerShell.
+- **`pxw.exe`** — headless build (`-H=windowsgui`): no console popup, for Task Scheduler and autostart registry entries.
+
+`--install` automatically registers `pxw.exe` in the autostart registry entry if it exists alongside `px.exe`.
+
+### Setup
+
+1. Download the Windows zip from GitHub Releases (contains both `px.exe` and `pxw.exe`) or build both:
+   ```powershell
+   # Console build — interactive debugging
+   GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o px.exe ./cmd/px
+
+   # Headless build — Task Scheduler / autostart
+   GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w -H=windowsgui" -o pxw.exe ./cmd/px
+   ```
+
+2. Place `px.exe`, `pxw.exe`, and `px.ini` in a permanent location:
+   ```
+   C:\Tools\px\px.exe
+   C:\Tools\px\pxw.exe
+   C:\Tools\px\px.ini
+   ```
+
+3. Register autostart (uses `pxw.exe` automatically):
+   ```powershell
+   C:\Tools\px\px.exe --config=C:\Tools\px\px.ini --install
+   ```
+
+   Or create a Scheduled Task (PowerShell as Administrator):
+   ```powershell
+   $action = New-ScheduledTaskAction -Execute "C:\Tools\px\pxw.exe" `
+     -Argument "--config=C:\Tools\px\px.ini" `
+     -WorkingDirectory "C:\Tools\px"
+
+   $trigger = New-ScheduledTaskTrigger -AtLogOn
+
+   $settings = New-ScheduledTaskSettingsSet `
+     -AllowStartIfOnBatteries `
+     -DontStopIfGoingOnBatteries `
+     -ExecutionTimeLimit (New-TimeSpan) `
+     -RestartCount 3 `
+     -RestartInterval (New-TimeSpan -Minutes 1)
+
+   Register-ScheduledTask -TaskName "px-proxy" `
+     -Action $action -Trigger $trigger -Settings $settings `
+     -RunLevel Highest -Description "px-go local auth proxy"
+   ```
+
+4. Recommended `px.ini` settings for headless operation:
+   ```ini
+   [settings]
+   ; File-based logging (stdout unavailable in headless mode)
+   log = 1
+
+   ; High concurrency for AI agents (Copilot, Cursor, etc.)
+   threads = 128
+
+   ; Long idle timeout — AI tools keep connections open for minutes
+   idle = 300
+
+   foreground = 0
+   ```
+
+### Important notes
+
+- **SSPI authentication** requires the task to run **only when user is logged on** (SSPI needs an interactive session token). Do not use "Run whether user is logged on or not".
+- **Logging**: Use `log=1` (file in script directory) or `log=2` (cwd). `log=4` (stdout) produces no output in headless mode.
+- **Health check**: `curl http://127.0.0.1:3128/health` from PowerShell to verify the proxy is running.
+- **Graceful stop**: `curl http://127.0.0.1:3128/PxQuit` or stop the scheduled task.
+- **Verbose debugging**: Temporarily use `px.exe` (console build, without `-H=windowsgui`) and run manually with `--verbose` to see full debug output.
 
 ## Docker
 ```bash
