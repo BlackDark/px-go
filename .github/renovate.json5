@@ -1,0 +1,29 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:best-practices"],
+
+  // Only create/update Renovate branches once a week
+  schedule: ["before 4am on monday"],
+  updateNotScheduled: false,
+
+  // Keep majors separate
+  separateMajorMinor: true,
+  separateMultipleMajor: true,
+
+  packageRules: [
+    {
+      description: "Group all patch/pin/digest updates together",
+      matchUpdateTypes: ["!major", "!minor"],
+      groupName: "all patch/pin/digest updates",
+      groupSlug: "all-patch-pin-digest",
+      automerge: true,
+      automergeType: "pr",
+    },
+    {
+      description: "Group all minor updates together",
+      matchUpdateTypes: ["minor"],
+      groupName: "all minor updates",
+      groupSlug: "all-minor-updates",
+    },
+  ],
+}
