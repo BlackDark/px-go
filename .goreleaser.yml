@@ -47,12 +47,12 @@ builds:
       - -s -w -H=windowsgui -X github.com/BlackDark/px-go/internal/version.Version={{ .Version }} -X github.com/BlackDark/px-go/internal/version.Commit={{ .Commit }} -X github.com/BlackDark/px-go/internal/version.Date={{ .Date }}
 
 archives:
-  - id: default
-    builds: [px, px-windows-console, px-windows-headless]
+  - id: unix
+    ids: [px]
     formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
+  - id: windows
+    ids: [px-windows-console, px-windows-headless]
+    formats: [zip]
 
 checksum:
   name_template: checksums.txt
