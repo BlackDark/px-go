@@ -8,7 +8,7 @@ Go port of [px](https://github.com/genotrance/px): a local HTTP proxy that authe
 - CONNECT tunneling for HTTPS
 - Upstream auth: BASIC, DIGEST, NTLM, NEGOTIATE
 - Client auth: BASIC, DIGEST, NTLM, NEGOTIATE (SSPI on Windows)
-- PAC execution, INI + `.env` + `PX_*` env + CLI config
+- PAC execution, INI/TOML + `.env` + `PX_*` env + CLI config
 - Allow-list and noproxy matching (IPs, CIDRs, wildcards, domains)
 - Single static binary (~15 MB), Docker images via Goreleaser
 
@@ -21,12 +21,12 @@ curl --proxy http://127.0.0.1:3128 http://example.com
 
 Upstream requires NTLM/Negotiate/passwords? See [Authentication](docs/authentication.md).
 
-Config precedence: defaults → `px.ini` → `.env` / `PX_*` → CLI flags. See [px.ini](px.ini).
+Config precedence: defaults → `px.toml` (else `px.ini`) → `.env` / `PX_*` → CLI flags. See [px.toml](px.toml) or [px.ini](px.ini).
 
 ## Common flags
 
 ```bash
---config=path/to/px.ini   --server=proxy:8080   --pac=http://wpad/proxy.pac
+--config=path/to/px.toml  --server=proxy:8080   --pac=http://wpad/proxy.pac
 --listen=127.0.0.1       --port=3128           --gateway / --hostonly
 --username=DOMAIN\\user  --auth=NTLM|NEGOTiate|...
 --client-auth=BASIC      --noproxy=localhost,10.0.0.0/8

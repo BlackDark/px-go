@@ -4,6 +4,7 @@ go 1.27
 
 require (
 	github.com/Azure/go-ntlmssp v0.1.1
+	github.com/BurntSushi/toml v1.6.0
 	github.com/bigkraig/go-ntlm v0.0.0-20160204225210-8856fdbdc17d
 	github.com/dop251/goja v0.0.0-20260926152631-39ec2650adc9
 	github.com/jcmturner/gokrb5/v8 v8.4.4
