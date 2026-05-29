@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/joho/godotenv"
 	ini "gopkg.in/ini.v1"
 )
@@ -116,8 +117,14 @@ func Load(args []string) (Config, error) {
 	}
 	cfg.Special.ConfigPath = configPath
 	if configPath != "" {
-		if err := applyINI(&cfg, configPath); err != nil {
-			return cfg, err
+		var loadErr error
+		if strings.EqualFold(filepath.Ext(configPath), ".toml") {
+			loadErr = applyTOML(&cfg, configPath)
+		} else {
+			loadErr = applyINI(&cfg, configPath)
+		}
+		if loadErr != nil {
+			return cfg, loadErr
 		}
 	}
 
@@ -193,14 +200,14 @@ func resolveConfigPath(explicit string) (string, error) {
 		}
 		return explicit, nil
 	}
-	candidates := []string{
-		filepath.Join(mustGetwd(), "px.ini"),
-		filepath.Join(ConfigDir(), "px.ini"),
-		filepath.Join(scriptDir(), "px.ini"),
-	}
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
+	// px.toml takes precedence over px.ini in each candidate directory.
+	dirs := []string{mustGetwd(), ConfigDir(), scriptDir()}
+	for _, dir := range dirs {
+		for _, name := range []string{"px.toml", "px.ini"} {
+			p := filepath.Join(dir, name)
+			if _, err := os.Stat(p); err == nil {
+				return p, nil
+			}
 		}
 	}
 	return "", nil
@@ -255,6 +262,92 @@ func applyINI(cfg *Config, path string) error {
 		"foreground":      mapSection("settings", "foreground"),
 		"log":             mapSection("settings", "log"),
 		"log_level":       mapSection("settings", "log_level"),
+	}
+	return applyValues(cfg, values)
+}
+
+// tomlConfig mirrors the TOML config file structure. Fields use native TOML
+// types (arrays, bools, ints) where appropriate; they are converted to the
+// canonical flat string map so that applyValues handles all validation.
+type tomlConfig struct {
+	Proxy struct {
+		Server      []string `toml:"server"`
+		PAC         string   `toml:"pac"`
+		PACEncoding string   `toml:"pac_encoding"`
+		Listen      []string `toml:"listen"`
+		Port        int      `toml:"port"`
+		Gateway     bool     `toml:"gateway"`
+		HostOnly    bool     `toml:"hostonly"`
+		Allow       string   `toml:"allow"`
+		NoProxy     string   `toml:"noproxy"`
+		UserAgent   string   `toml:"useragent"`
+		Username    string   `toml:"username"`
+		Auth        string   `toml:"auth"`
+		Kerberos    bool     `toml:"kerberos"`
+	} `toml:"proxy"`
+	Client struct {
+		Username string `toml:"client_username"`
+		Auth     string `toml:"client_auth"`
+		NoSSPI   bool   `toml:"client_nosspi"`
+	} `toml:"client"`
+	Settings struct {
+		Workers     int     `toml:"workers"`
+		Threads     int     `toml:"threads"`
+		Idle        int     `toml:"idle"`
+		SockTimeout float64 `toml:"socktimeout"`
+		ProxyReload int     `toml:"proxyreload"`
+		Foreground  bool    `toml:"foreground"`
+		Log         int     `toml:"log"`
+		LogLevel    string  `toml:"log_level"`
+	} `toml:"settings"`
+}
+
+func applyTOML(cfg *Config, path string) error {
+	var t tomlConfig
+	if _, err := toml.DecodeFile(path, &t); err != nil {
+		return err
+	}
+	p := t.Proxy
+	s := t.Settings
+	values := map[string]string{
+		"server":          strings.Join(p.Server, ","),
+		"pac":             p.PAC,
+		"pac_encoding":    p.PACEncoding,
+		"listen":          strings.Join(p.Listen, ","),
+		"gateway":         boolString(p.Gateway),
+		"hostonly":        boolString(p.HostOnly),
+		"allow":           p.Allow,
+		"noproxy":         p.NoProxy,
+		"useragent":       p.UserAgent,
+		"username":        p.Username,
+		"auth":            p.Auth,
+		"kerberos":        boolString(p.Kerberos),
+		"client_username": t.Client.Username,
+		"client_auth":     t.Client.Auth,
+		"client_nosspi":   boolString(t.Client.NoSSPI),
+		"foreground":      boolString(s.Foreground),
+		"log_level":       s.LogLevel,
+	}
+	if p.Port != 0 {
+		values["port"] = strconv.Itoa(p.Port)
+	}
+	if s.Workers != 0 {
+		values["workers"] = strconv.Itoa(s.Workers)
+	}
+	if s.Threads != 0 {
+		values["threads"] = strconv.Itoa(s.Threads)
+	}
+	if s.Idle != 0 {
+		values["idle"] = strconv.Itoa(s.Idle)
+	}
+	if s.SockTimeout != 0 {
+		values["socktimeout"] = strconv.FormatFloat(s.SockTimeout, 'f', 1, 64)
+	}
+	if s.ProxyReload != 0 {
+		values["proxyreload"] = strconv.Itoa(s.ProxyReload)
+	}
+	if s.Log != 0 {
+		values["log"] = strconv.Itoa(s.Log)
 	}
 	return applyValues(cfg, values)
 }
@@ -405,6 +498,55 @@ func applyValues(cfg *Config, values map[string]string) error {
 }
 
 func (c Config) Save(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if strings.EqualFold(filepath.Ext(path), ".toml") {
+		return c.saveTOML(path)
+	}
+	return c.saveINI(path)
+}
+
+func (c Config) saveTOML(path string) error {
+	listen := c.Proxy.Listen
+	if c.Proxy.Gateway || c.Proxy.HostOnly {
+		listen = nil
+	}
+	t := tomlConfig{}
+	t.Proxy.Server = c.Proxy.Server
+	t.Proxy.PAC = c.Proxy.PAC
+	t.Proxy.PACEncoding = c.Proxy.PACEncoding
+	t.Proxy.Listen = listen
+	t.Proxy.Port = c.Proxy.Port
+	t.Proxy.Gateway = c.Proxy.Gateway
+	t.Proxy.HostOnly = c.Proxy.HostOnly
+	t.Proxy.Allow = c.Proxy.Allow
+	t.Proxy.NoProxy = c.Proxy.NoProxy
+	t.Proxy.UserAgent = c.Proxy.UserAgent
+	t.Proxy.Username = c.Proxy.Username
+	t.Proxy.Auth = c.Proxy.Auth
+	t.Proxy.Kerberos = c.Proxy.Kerberos
+	t.Client.Username = c.Client.Username
+	t.Client.Auth = c.Client.Auth
+	t.Client.NoSSPI = c.Client.NoSSPI
+	t.Settings.Workers = c.Settings.Workers
+	t.Settings.Threads = c.Settings.Threads
+	t.Settings.Idle = int(c.Settings.Idle.Seconds())
+	t.Settings.SockTimeout = c.Settings.SockTimeout.Seconds()
+	t.Settings.ProxyReload = int(c.Settings.ProxyReload.Seconds())
+	t.Settings.Foreground = c.Settings.Foreground
+	t.Settings.Log = c.Settings.Log
+	t.Settings.LogLevel = c.Settings.LogLevel.String()
+
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return toml.NewEncoder(f).Encode(t)
+}
+
+func (c Config) saveINI(path string) error {
 	file := ini.Empty()
 	proxySection, _ := file.NewSection("proxy")
 	clientSection, _ := file.NewSection("client")
@@ -441,9 +583,6 @@ func (c Config) Save(path string) error {
 	_, _ = settingsSection.NewKey("log", strconv.Itoa(c.Settings.Log))
 	_, _ = settingsSection.NewKey("log_level", c.Settings.LogLevel.String())
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	return file.SaveTo(path)
 }
 

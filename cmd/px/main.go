@@ -45,7 +45,13 @@ func run(args []string) error {
 	if cfg.Special.Save {
 		path := cfg.Special.ConfigPath
 		if path == "" {
-			path = filepath.Join(".", "px.ini")
+			// Default to TOML when no config was loaded or config is TOML;
+			// fall back to INI only when an existing INI config is in use.
+			if strings.EqualFold(filepath.Ext(path), ".ini") {
+				path = filepath.Join(".", "px.ini")
+			} else {
+				path = filepath.Join(".", "px.toml")
+			}
 		}
 		return cfg.Save(path)
 	}
