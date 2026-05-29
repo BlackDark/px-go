@@ -70,8 +70,8 @@ dockers:
     build_flag_templates:
       - "--platform=linux/amd64"
     image_templates:
-      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:{{ .Version }}-amd64
-      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:latest-amd64
+      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER | lower }}/{{ .ProjectName }}:{{ .Version }}-amd64
+      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER | lower }}/{{ .ProjectName }}:latest-amd64
   - ids: [px]
     use: buildx
     dockerfile: docker/Dockerfile.goreleaser
@@ -80,15 +80,15 @@ dockers:
     build_flag_templates:
       - "--platform=linux/arm64"
     image_templates:
-      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:{{ .Version }}-arm64
-      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:latest-arm64
+      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER | lower }}/{{ .ProjectName }}:{{ .Version }}-arm64
+      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER | lower }}/{{ .ProjectName }}:latest-arm64
 
 docker_manifests:
-  - name_template: ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:{{ .Version }}
+  - name_template: ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER | lower }}/{{ .ProjectName }}:{{ .Version }}
     image_templates:
-      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:{{ .Version }}-amd64
-      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:{{ .Version }}-arm64
-  - name_template: ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:latest
+      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER | lower }}/{{ .ProjectName }}:{{ .Version }}-amd64
+      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER | lower }}/{{ .ProjectName }}:{{ .Version }}-arm64
+  - name_template: ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER | lower }}/{{ .ProjectName }}:latest
     image_templates:
-      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:latest-amd64
-      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:latest-arm64
+      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER | lower }}/{{ .ProjectName }}:latest-amd64
+      - ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER | lower }}/{{ .ProjectName }}:latest-arm64
