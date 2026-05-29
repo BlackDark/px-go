@@ -79,7 +79,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
-          go build -ldflags="-s -w" -o px-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/px
+          go build -ldflags="-s -w" -o px-go-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/px
       - name: Build headless (Windows only)
         if: ${{ matrix.goos == 'windows' }}
         env:
@@ -87,11 +87,11 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
-          go build -ldflags="-s -w -H=windowsgui" -o pxw-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/px
+          go build -ldflags="-s -w -H=windowsgui" -o pxw-go-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/px
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: px-${{ matrix.suffix }}
+          name: px-go-${{ matrix.suffix }}
           path: |
-            px-${{ matrix.suffix }}${{ matrix.ext }}
-            pxw-${{ matrix.suffix }}${{ matrix.ext }}
+            px-go-${{ matrix.suffix }}${{ matrix.ext }}
+            pxw-go-${{ matrix.suffix }}${{ matrix.ext }}
