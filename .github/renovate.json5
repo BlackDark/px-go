@@ -12,6 +12,11 @@
 
   packageRules: [
     {
+      description: "Intentionally frozen: server-side NTLM implementation of a stable protocol (MS-NLMP). No viable alternative exists. Monitored for CVEs via govulncheck in CI.",
+      matchPackageNames: ["github.com/bigkraig/go-ntlm", "github.com/ThomsonReutersEikon/go-ntlm"],
+      enabled: false,
+    },
+    {
       description: "Group all patch/pin/digest updates together",
       matchUpdateTypes: ["!major", "!minor"],
       groupName: "all patch/pin/digest updates",
