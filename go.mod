@@ -5,13 +5,13 @@ go 1.26
 require (
 	github.com/Azure/go-ntlmssp v0.1.1
 	github.com/bigkraig/go-ntlm v0.0.0-20160204225210-8856fdbdc17d
-	github.com/dop251/goja v0.0.0-20260607120635-348e6bea910d
+	github.com/dop251/goja v0.0.0-20260618133527-c9b2ea77db59
 	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/joho/godotenv v1.5.1
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/sys v0.45.0
 	golang.org/x/term v0.43.0
-	gopkg.in/ini.v1 v1.67.2
+	gopkg.in/ini.v1 v1.67.3
 )
 
 require (
