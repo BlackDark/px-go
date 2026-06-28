@@ -50,7 +50,7 @@ auth = NONE
 
 listen = 127.0.0.1
 port = 3128
-noproxy = localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,169.254.0.0/16,.local
+noproxy = localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local
 
 [settings]
 threads = 128
@@ -192,7 +192,7 @@ server = corp-proxy.example.com:8080
 auth = NONE
 hostonly = 1
 port = 3128
-noproxy = localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,169.254.0.0/16
+noproxy = localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local
 
 [settings]
 threads = 128

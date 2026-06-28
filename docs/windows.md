@@ -55,8 +55,11 @@ Release zips contain `pxw-go.exe`, not `px-gow.exe`. Either:
 
    $trigger = New-ScheduledTaskTrigger -AtLogOn
    Register-ScheduledTask -TaskName "px-proxy" -Action $action -Trigger $trigger `
-     -RunLevel Highest -Description "px-go outbound proxy"
+     -RunLevel Highest -Description "px-go outbound proxy" `
+     -User $env:USERNAME
    ```
+
+   In Task Scheduler UI, confirm **“Run only when user is logged on”** is selected (required for SSPI).
 
 ## Recommended `px.ini`
 

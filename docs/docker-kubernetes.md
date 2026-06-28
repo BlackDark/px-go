@@ -56,12 +56,14 @@ px-go \
 ```bash
 docker build -f docker/Dockerfile -t px-go .
 docker run --rm -p 3128:3128 \
-  px-go --server=corp-proxy:8080 --gateway --foreground --log=4 \
+  px-go --server=corp-proxy:8080 --auth=NONE --gateway --foreground --log=4 \
   --allow='10.0.0.0/8,172.16.0.0/12,192.168.0.0/16' \
-  --noproxy='.svc,.svc.cluster.local,.cluster.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16'
+  --noproxy='.svc,.svc.cluster.local,.cluster.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local'
 ```
 
 Released images: `ghcr.io/blackdark/px-go:latest` (multi-arch).
+
+> **Warning:** The image default `CMD` includes `--gateway`. A bare `docker run -p 3128:3128 ghcr.io/blackdark/px-go:latest` with no extra args binds an open relay (`allow` defaults to `*.*.*.*`). Always pass explicit `--allow`, `--noproxy`, and `--server` as above.
 
 ## Docker Compose
 
@@ -177,7 +179,7 @@ env:
   - name: HTTPS_PROXY
     value: http://px-go:3128
   - name: NO_PROXY
-    value: .svc,.svc.cluster.local,.cluster.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16
+    value: .svc,.svc.cluster.local,.cluster.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local
 ```
 
 Add **NetworkPolicy** so only intended namespaces reach port 3128. For upstream or client credentials, see [Authentication](authentication.md).

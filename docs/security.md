@@ -24,9 +24,9 @@ Service-account passwords, keytabs, and `.env` files are high-value targets. A c
 
 ### SSPI / OS identity unavailable in Linux containers
 
-Negotiate/NTLM via the logged-on Windows user or Linux Kerberos ticket **does not work** in a default Linux container. Explicit `--username` / `--password` or a mounted keytab is required.
+Negotiate/NTLM via the logged-on Windows user **does not work** in a default Linux container. Use explicit `--username` / `--password` (Kubernetes Secrets).
 
-**Mitigate:** Use [Kerberos keytab](authentication.md#upstream-kerberos-on-linux) on VMs; use Secrets in Kubernetes; never assume SSPI in Docker.
+**Mitigate:** See [Authentication → Linux Negotiate](authentication.md#upstream-kerberos-on-linux) and [Kubernetes upstream credentials](authentication.md#kubernetes-upstream-credentials); never assume SSPI in Docker.
 
 ### Administrative endpoints
 
