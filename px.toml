@@ -1,0 +1,93 @@
+[proxy]
+
+# NTLM server(s) to connect through. IP:port, hostname:port
+#   Multiple proxies can be specified as an array. Px will iterate through
+#   and use the one that works.
+server = []
+
+# PAC file to use to connect.
+#   Use in place of server if PAC file should be loaded from a URL or local file.
+#   Relative paths are relative to the px binary.
+pac = ""
+
+# PAC file encoding. Default: "utf-8"
+pac_encoding = "utf-8"
+
+# Network interface(s) to listen on. Default: ["127.0.0.1"]
+#   gateway and hostonly override this to bind to all interfaces.
+listen = ["127.0.0.1"]
+
+# Port to run this proxy on. Default: 3128
+port = 3128
+
+# Allow remote machines to use proxy. Default: false
+#   Overrides listen and binds to all interfaces.
+gateway = false
+
+# Allow only local interfaces to use proxy. Default: false
+#   Px allows all IP addresses assigned to local interfaces to use the service.
+hostonly = false
+
+# Allow connections from specific subnets. Default: "*.*.*.*"
+#   Examples: "127.0.0.1", "192.168.0.*", "192.168.0.1-192.168.0.255", "192.168.0.0/24"
+#   Comma-separated string or use a single pattern.
+allow = "*.*.*.*"
+
+# Direct connect to specific subnets or domains (bypass upstream proxy). Comma separated.
+noproxy = ""
+
+# Override or send User-Agent header on client's behalf.
+useragent = ""
+
+# Authentication to use when SSPI is unavailable. Format: domain\username
+username = ""
+
+# Force auth type instead of discovering upstream proxy type.
+#   Options: ANY, NTLM, NEGOTIATE, BASIC, DIGEST, NONE
+auth = "ANY"
+
+# Enable Kerberos ticket management. Default: false
+kerberos = false
+
+[client]
+
+# Client authentication username. Format: domain\username
+client_username = ""
+
+# Enable authentication for client connections. Default: "NONE"
+#   Options: NONE, BASIC, DIGEST, NTLM, NEGOTIATE
+client_auth = "NONE"
+
+# Disable SSPI for client authentication on Windows. Default: false
+client_nosspi = false
+
+[settings]
+
+# Number of parallel workers. Ignored in Go (kept for compatibility). Default: 1
+workers = 1
+
+# Max concurrent upstream connection setups (dial + auth handshake).
+# CONNECT tunnels release the slot after setup so active tunnels do NOT consume
+# a thread slot. Safe to set high for AI agent workloads. Default: 128
+threads = 128
+
+# Idle timeout in seconds for CONNECT tunnel sessions.
+# For AI agents (Copilot, Cursor) that keep long-lived connections, use 300+.
+# Default: 300
+idle = 300
+
+# Timeout in seconds for upstream connection + auth before giving up. Default: 20
+socktimeout = 20.0
+
+# Time interval in seconds before refreshing proxy info (PAC reload). Default: 60
+proxyreload = 60
+
+# Run in foreground. Default: false
+foreground = false
+
+# Logging output. 0=none, 1=script dir, 2=cwd, 3=unique, 4=stdout
+# Use log=1 when running headless (Task Scheduler) since stdout is unavailable.
+log = 0
+
+# Log level. Options: DEBUG, INFO, WARN, ERROR. Default: INFO
+log_level = "INFO"
