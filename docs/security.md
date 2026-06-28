@@ -6,7 +6,7 @@ Review this before running px-go as a shared, gateway, or cluster-wide proxy.
 
 ### Open proxy / relay abuse
 
-`gateway=1` with a permissive `allow` (e.g. `*.*.*.*`) turns px into an **open HTTP CONNECT relay** through your corporate network. Any client that can reach the port may tunnel arbitrary traffic upstream.
+`gateway=1` with a permissive `allow` (e.g. `*.*.*.*`) turns px into an **open HTTP CONNECT relay** through your corporate network. Publishing `-p 3128:3128` without `--allow` and `--server` is especially dangerous in Docker examples.
 
 **Mitigate:** Restrict `allow` to known pod, VM, or office CIDRs. Enable [client authentication](authentication.md#client-authentication) when the listener is reachable beyond loopback.
 

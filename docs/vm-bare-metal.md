@@ -29,7 +29,13 @@ Default mode: bind `127.0.0.1:3128`, only processes on the same machine connect.
 ### Install binary
 
 ```bash
-curl -sL https://github.com/BlackDark/px-go/releases/latest/download/px-go_linux_amd64.tar.gz | tar xz
+# From GitHub Releases (replace VERSION, e.g. 0.1.0):
+VERSION=0.1.0
+curl -sL "https://github.com/BlackDark/px-go/releases/download/v${VERSION}/px-go_${VERSION}_linux_amd64.tar.gz" | tar xz
+sudo install -m 755 px-go /usr/local/bin/px-go
+
+# Or with GitHub CLI:
+gh release download --repo BlackDark/px-go --pattern 'px-go_*_linux_amd64.tar.gz' --output - | tar xz
 sudo install -m 755 px-go /usr/local/bin/px-go
 ```
 
@@ -44,7 +50,7 @@ auth = NONE
 
 listen = 127.0.0.1
 port = 3128
-noproxy = localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local
+noproxy = localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,169.254.0.0/16,.local
 
 [settings]
 threads = 128
@@ -140,7 +146,7 @@ server = corp-proxy.example.com:8080
 auth = NONE
 listen = 127.0.0.1
 port = 3128
-noproxy = localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+noproxy = localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local
 
 [settings]
 threads = 64
@@ -156,7 +162,7 @@ server = corp-proxy.example.com:8080
 auth = NONE
 listen = 127.0.0.1
 port = 3129
-noproxy = localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+noproxy = localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local
 
 [settings]
 threads = 64
@@ -186,7 +192,7 @@ server = corp-proxy.example.com:8080
 auth = NONE
 hostonly = 1
 port = 3128
-noproxy = localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16
+noproxy = localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,169.254.0.0/16
 
 [settings]
 threads = 128
@@ -203,7 +209,7 @@ Point containers at the host gateway IP (often `172.17.0.1`):
 environment:
   HTTP_PROXY: http://172.17.0.1:3128
   HTTPS_PROXY: http://172.17.0.1:3128
-  NO_PROXY: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+  NO_PROXY: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local
 ```
 
 ### VM as LAN gateway
@@ -254,7 +260,7 @@ sudo firewall-cmd --reload
 | Per-service | Multiple tasks, different `--port` and `--config` |
 | Container host | `hostonly=1` + firewall |
 
-Use `pxw.exe` headless. SSPI: [Windows deployment](windows.md).
+Use `pxw-go.exe` / `pxw.exe` headless. SSPI: [Windows deployment](windows.md).
 
 ---
 

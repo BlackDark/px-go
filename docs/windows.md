@@ -6,12 +6,28 @@ Back to [deployment overview](deployment.md). Upstream/client auth details: [Aut
 
 ## Binaries
 
-Each release zip contains:
+**GitHub Releases** ship `px-go.exe` (console) and `pxw-go.exe` (headless) inside the Windows zip.
 
-- **`px.exe`** — console build for interactive debugging or manual runs.
-- **`pxw.exe`** — headless build (`-H=windowsgui`) for Task Scheduler and autostart.
+**Local builds** often use `px.exe` / `pxw.exe` — same behavior, different names.
 
-`--install` registers `pxw.exe` automatically if it sits alongside `px.exe`.
+| Binary | Purpose |
+|---|---|
+| Console (`px-go.exe` / `px.exe`) | Debugging, manual runs, `--install` |
+| Headless (`pxw-go.exe` / `pxw.exe`) | Task Scheduler, autostart, no console window |
+
+### `--install` and headless binary names
+
+`--install` registers autostart using the headless sibling of the executable you run: it looks for `<basename-without-ext>w.exe` next to the console binary.
+
+| You run | `--install` expects headless |
+|---|---|
+| `px-go.exe` | `px-gow.exe` |
+| `px.exe` | `pxw.exe` |
+
+Release zips contain `pxw-go.exe`, not `px-gow.exe`. Either:
+
+- Register Task Scheduler manually with `pxw-go.exe` (recommended for releases), or
+- Copy/rename `pxw-go.exe` → `px-gow.exe` beside `px-go.exe` before `--install`.
 
 ## Setup
 
@@ -22,18 +38,24 @@ Each release zip contains:
    GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w -H=windowsgui" -o pxw.exe ./cmd/px
    ```
 
-2. Install to a permanent path:
+2. Install to a permanent path (release names shown):
 
    ```
-   C:\Tools\px\px.exe
-   C:\Tools\px\pxw.exe
+   C:\Tools\px\px-go.exe
+   C:\Tools\px\pxw-go.exe
    C:\Tools\px\px.ini
    ```
 
-3. Autostart:
+3. Autostart — Task Scheduler with headless binary (works with release names):
 
    ```powershell
-   C:\Tools\px\px.exe --config=C:\Tools\px\px.ini --install
+   $action = New-ScheduledTaskAction -Execute "C:\Tools\px\pxw-go.exe" `
+     -Argument "--config=C:\Tools\px\px.ini" `
+     -WorkingDirectory "C:\Tools\px"
+
+   $trigger = New-ScheduledTaskTrigger -AtLogOn
+   Register-ScheduledTask -TaskName "px-proxy" -Action $action -Trigger $trigger `
+     -RunLevel Highest -Description "px-go outbound proxy"
    ```
 
 ## Recommended `px.ini`
@@ -57,13 +79,13 @@ idle = 300
 foreground = 0
 ```
 
-If the upstream proxy needs **no authentication**, set `auth = NONE` and omit credentials. If it needs explicit NTLM/passwords instead of SSPI, see [Authentication](authentication.md).
+If the upstream proxy needs **no authentication**, set `auth = NONE`. For explicit NTLM/passwords, see [Authentication](authentication.md).
 
 ## SSPI and sessions
 
 - Task must run **only when the user is logged on** — SSPI needs an interactive session token.
 - Do not use "Run whether user is logged on or not" for SSPI.
-- `log=1` (file next to binary) or `log=2` (cwd). `log=4` (stdout) is empty in headless `pxw.exe`.
+- `log=1` (file next to binary) or `log=2` (cwd). `log=4` (stdout) is empty in headless mode.
 
 ---
 
@@ -72,8 +94,6 @@ If the upstream proxy needs **no authentication**, set `auth = NONE` and omit cr
 Run px on **Windows** (not inside WSL) so upstream auth uses your **existing Windows domain login**. Point WSL tools at the Windows host.
 
 ### 1. Windows `px.ini` for WSL clients
-
-Allow WSL to connect via `hostonly` (recommended) or mirrored localhost:
 
 ```ini
 [proxy]
@@ -91,18 +111,15 @@ foreground = 0
 log = 1
 ```
 
-Start px (logged-on user session):
+Start px in a logged-on session:
 
 ```powershell
-C:\Tools\px\px.exe --config=C:\Tools\px\px.ini
-# or register autostart via --install / Task Scheduler
+C:\Tools\px\px-go.exe --config=C:\Tools\px\px.ini
 ```
 
 ### 2. WSL proxy environment
 
 **Option A — WSL mirrored networking** (Windows 11 22H2+, `[wsl2] networkingMode=mirrored` in `.wslconfig`):
-
-Windows services on `127.0.0.1` are reachable from WSL directly:
 
 ```bash
 # ~/.bashrc or ~/.zshrc
@@ -113,8 +130,6 @@ export NO_PROXY=localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.
 
 **Option B — classic WSL2 NAT** (default on older setups):
 
-Use the Windows host IP from WSL (usually the `/etc/resolv.conf` nameserver):
-
 ```bash
 WIN_HOST=$(grep nameserver /etc/resolv.conf | awk '{print $2}')
 export HTTP_PROXY=http://${WIN_HOST}:3128
@@ -122,7 +137,7 @@ export HTTPS_PROXY=http://${WIN_HOST}:3128
 export NO_PROXY=localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local
 ```
 
-Requires `hostonly=1` in `px.ini` so px accepts connections from the WSL virtual NIC.
+Requires `hostonly=1` so px accepts connections from the WSL virtual NIC.
 
 ### 3. Verify from WSL
 
@@ -133,39 +148,18 @@ curl -x "$HTTP_PROXY" https://example.com
 
 ### 4. Do not run px inside WSL for SSPI
 
-The Linux binary inside WSL **cannot** use Windows SSPI. You would need explicit [username/password or Kerberos](authentication.md) in WSL — defeating the purpose of using the Windows login.
+The Linux binary inside WSL **cannot** use Windows SSPI. You would need explicit [username/password](authentication.md) in WSL.
 
 ### WSL troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| `connection refused` from WSL | px not running on Windows; wrong host IP; enable `hostonly=1` for NAT mode |
-| 407 / auth failure upstream | User not domain-joined or not logged on; try `px.exe --verbose` in console |
-| Works in Windows, not WSL | Use `WIN_HOST` IP or enable mirrored networking |
+| `connection refused` from WSL | px not running on Windows; enable `hostonly=1` for NAT mode |
+| Wrong host IP (VPN / custom DNS) | Try mirrored networking; or `ip route show default \| awk '{print $3}'` for Windows host |
+| 407 / auth failure upstream | Domain user logged on? Run `px-go.exe --verbose` in console |
 | Looping internal traffic | Check `NO_PROXY` includes private ranges |
 
 ---
-
-## Task Scheduler (alternative to `--install`)
-
-```powershell
-$action = New-ScheduledTaskAction -Execute "C:\Tools\px\pxw.exe" `
-  -Argument "--config=C:\Tools\px\px.ini" `
-  -WorkingDirectory "C:\Tools\px"
-
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-
-$settings = New-ScheduledTaskSettingsSet `
-  -AllowStartIfOnBatteries `
-  -DontStopIfGoingOnBatteries `
-  -ExecutionTimeLimit (New-TimeSpan) `
-  -RestartCount 3 `
-  -RestartInterval (New-TimeSpan -Minutes 1)
-
-Register-ScheduledTask -TaskName "px-proxy" `
-  -Action $action -Trigger $trigger -Settings $settings `
-  -RunLevel Highest -Description "px-go local auth proxy"
-```
 
 ## Operations
 
@@ -173,7 +167,7 @@ Register-ScheduledTask -TaskName "px-proxy" `
 |---|---|
 | Health check | `curl http://127.0.0.1:3128/health` |
 | Graceful stop | `curl http://127.0.0.1:3128/PxQuit` or stop the task |
-| Debug | Run `px.exe --verbose` in a console |
+| Debug | Run `px-go.exe --verbose` or `px.exe --verbose` in a console |
 
 ## See also
 

@@ -21,15 +21,13 @@ If px binds `127.0.0.1` only and only local apps connect, leave `client_auth = N
 
 ## Upstream: no authentication
 
-Use when the corporate proxy accepts connections without credentials (common in examples and lab setups):
+Use when the corporate proxy accepts connections without credentials (used in Linux/Docker/K8s deployment examples):
 
 ```ini
 [proxy]
 server = corp-proxy.example.com:8080
 auth = NONE
 ```
-
-Or omit `username` / `auth` and px discovers or connects directly.
 
 ---
 
@@ -54,10 +52,10 @@ PX_PASSWORD='secret'
 | `NTLM` | Corporate proxy expects NTLM |
 | `BASIC` | Plain Basic auth to upstream |
 | `DIGEST` | Digest auth to upstream |
-| `NEGOTIATE` | SPNEGO/Kerberos to upstream (needs ticket or SSPI) |
+| `NEGOTIATE` | SPNEGO/Kerberos to upstream (Linux: needs password below) |
 | `ANY` | Try methods until one works (default when unset) |
 
-Docker / Kubernetes: store `PX_PASSWORD` in a Secret — see [Kubernetes upstream auth](#kubernetes-upstream-credentials).
+Docker / Kubernetes: store `PX_PASSWORD` in a Secret — see [Kubernetes upstream credentials](#kubernetes-upstream-credentials).
 
 ---
 
@@ -76,7 +74,6 @@ Requirements:
 
 - px runs **while the user is logged on** (Task Scheduler: "Run only when user is logged on").
 - Do not use "Run whether user is logged on or not" for SSPI.
-- Works for desktop dev, WSL host proxy, and interactive server sessions.
 
 See [Windows + WSL](windows.md#wsl2-use-windows-login-via-sspi).
 
@@ -84,27 +81,26 @@ See [Windows + WSL](windows.md#wsl2-use-windows-login-via-sspi).
 
 ## Upstream: Kerberos on Linux
 
-For Negotiate without embedding passwords on Linux VMs:
+On Linux, Negotiate uses **username and password** via gokrb5 (`NewWithPassword`). Optional `kerberos=1` runs periodic `kinit` to refresh tickets in a credential cache.
 
 ```ini
 [proxy]
 server = corp-proxy.example.com:8080
-kerberos = 1
+username = svc-account@CORP.EXAMPLE.COM
 auth = NEGOTIATE
+kerberos = 1
 ```
 
-1. Join the host to the domain (realmd/sssd).
-2. Obtain a ticket before px starts:
+```bash
+PX_PASSWORD='secret'
+```
 
-   ```bash
-   kinit -kt /etc/px-go/service.keytab HTTP/corp-proxy.example.com@CORP.EXAMPLE.COM
-   ```
+Requirements:
 
-3. Optional systemd `ExecStartPre`:
+- Valid `/etc/krb5.conf` (or `KRB5_CONFIG`) on the host.
+- `username` must include the realm (`user@REALM` or `DOMAIN\user`).
 
-   ```ini
-   ExecStartPre=/usr/bin/kinit -kt /etc/px-go/service.keytab HTTP/corp-proxy.example.com@CORP.EXAMPLE.COM
-   ```
+> **Keytab-only:** Not supported by px-go today. Negotiate on Linux always uses `username` + `PX_PASSWORD`. External `kinit -kt` alone does not replace that unless you extend px-go.
 
 ---
 
@@ -117,7 +113,7 @@ auth = NEGOTIATE
 username = DOMAIN\user
 ```
 
-Or PAC only with SSPI on Windows (no username). Ensure the host/container can resolve and reach the PAC URL.
+Or PAC with SSPI on Windows (no username). Ensure the host/container can resolve and reach the PAC URL.
 
 ---
 
@@ -181,7 +177,19 @@ args:
   # ... other args unchanged
 ```
 
-For client auth on the px Service, add `PX_CLIENT_USERNAME` / `PX_CLIENT_PASSWORD` similarly — see [client authentication](#client-authentication).
+For client auth on the px Service, add `PX_CLIENT_USERNAME` / `PX_CLIENT_PASSWORD` similarly.
+
+---
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| 407 from upstream | `auth` type, `PX_PASSWORD`, account lockout |
+| SSPI fails on Windows | User logged on? Task set to "Run only when user is logged on"? |
+| Negotiate fails on Linux | `krb5.conf`, realm in username, password correct |
+| Works locally, not in K8s | Secret mounted? Linux pods cannot use SSPI |
+| Client 407 to px | `client_auth` enabled? Credentials in proxy URL? |
 
 ---
 
@@ -190,8 +198,8 @@ For client auth on the px Service, add `PX_CLIENT_USERNAME` / `PX_CLIENT_PASSWOR
 | Environment | Upstream auth approach |
 |---|---|
 | Windows desktop / WSL host | SSPI (`auth=NEGOTIATE`, logged-on user) — [Windows + WSL](windows.md#wsl2-use-windows-login-via-sspi) |
-| Linux VM / systemd | Service account + `PX_PASSWORD`, or Kerberos keytab |
-| Docker / Kubernetes | **Always** explicit credentials or keytab; SSPI unavailable |
+| Linux VM / systemd | Service account + `PX_PASSWORD`, or Negotiate + `kerberos=1` |
+| Docker / Kubernetes | **Always** explicit credentials; SSPI unavailable |
 | Upstream needs no login | `auth=NONE`, `server=` only — used in [deployment examples](deployment.md#recommended-network-defaults) |
 
 ## See also

@@ -46,7 +46,7 @@ px-go \
   --server=corp-proxy:8080 \
   --auth=NONE \
   --allow='10.0.0.0/8,172.16.0.0/12,192.168.0.0/16' \
-  --noproxy='.svc,.svc.cluster.local,.cluster.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,localhost,127.0.0.1' \
+  --noproxy='.svc,.svc.cluster.local,.cluster.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16' \
   --foreground \
   --log=4
 ```
@@ -58,7 +58,7 @@ docker build -f docker/Dockerfile -t px-go .
 docker run --rm -p 3128:3128 \
   px-go --server=corp-proxy:8080 --gateway --foreground --log=4 \
   --allow='10.0.0.0/8,172.16.0.0/12,192.168.0.0/16' \
-  --noproxy='localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16'
+  --noproxy='.svc,.svc.cluster.local,.cluster.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16'
 ```
 
 Released images: `ghcr.io/blackdark/px-go:latest` (multi-arch).
@@ -77,7 +77,7 @@ services:
       - --gateway
       - --auth=NONE
       - --allow=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-      - --noproxy=.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16
+      - --noproxy=.svc,.svc.cluster.local,.cluster.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local
       - --foreground
       - --log=4
     deploy:
@@ -88,6 +88,7 @@ services:
         requests:
           memory: 128Mi
           cpu: 100m
+    # deploy.resources applies to Docker Swarm; for plain Compose use mem_limit/cpus if needed
     healthcheck:
       test: ["CMD", "/px-go", "--health-check", "--port=3128"]
       interval: 30s
@@ -100,7 +101,7 @@ services:
     environment:
       HTTP_PROXY: http://px:3128
       HTTPS_PROXY: http://px:3128
-      NO_PROXY: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local
+      NO_PROXY: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local
 ```
 
 ## Kubernetes
@@ -186,10 +187,20 @@ Add **NetworkPolicy** so only intended namespaces reach port 3128. For upstream 
 | Pattern | When to use |
 |---|---|
 | **Shared Deployment/Service** | Many pods, one px instance, easier ops |
-| **Sidecar per pod** | Pod-specific upstream config or isolation |
-| **DaemonSet (hostNetwork)** | Node-level proxy; pair with `hostonly=1` on the node |
+| **Sidecar per pod** | Pod-specific upstream config or isolation — add px container to pod spec, set `HTTP_PROXY=http://127.0.0.1:3128` in app container |
+| **DaemonSet (hostNetwork)** | Node-level proxy; run px on each node with `hostonly=1`, apps use node IP — see [VM & bare metal](vm-bare-metal.md#hostonly--docker--containers-on-the-same-host) |
 
 For VM/bare-metal equivalents, see [VM & bare metal](vm-bare-metal.md).
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| 403 from px | Client IP not in `allow`; tighten or fix pod CIDR |
+| 407 from upstream | [Authentication](authentication.md) — upstream requires creds not in example |
+| Readiness probe fails | px not listening; distroless needs `exec` probe with `/px-go --health-check` |
+| Internal traffic via corporate proxy | Expand `NO_PROXY` / `--noproxy` with `.svc`, pod CIDR |
+| Open relay concern | Never publish `--gateway` without `--allow`; see [security](security.md) |
 
 ## Sizing
 

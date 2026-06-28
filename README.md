@@ -15,9 +15,11 @@ Go port of [px](https://github.com/genotrance/px): a local HTTP proxy that authe
 ## Quick start
 
 ```bash
-go run ./cmd/px --server=upstream.proxy:8080 --username=DOMAIN\\user --port=3128
+go run ./cmd/px --server=upstream.proxy:8080 --port=3128 --auth=NONE
 curl --proxy http://127.0.0.1:3128 http://example.com
 ```
+
+Upstream requires NTLM/Negotiate/passwords? See [Authentication](docs/authentication.md).
 
 Config precedence: defaults → `px.ini` → `.env` / `PX_*` → CLI flags. See [px.ini](px.ini).
 
@@ -41,16 +43,19 @@ go test ./...
 go test -v ./internal/proxy/ -run TestIntegration
 ```
 
-Windows builds: console `px.exe` and headless `pxw.exe` — see [Windows deployment](docs/windows.md).
+Windows builds: `px-go.exe` / `pxw-go.exe` (releases) or `px.exe` / `pxw.exe` (local) — see [Windows deployment](docs/windows.md).
 
 ## Docker
 
 ```bash
 docker build -f docker/Dockerfile -t px-go .
-docker run --rm -p 3128:3128 px-go --gateway --foreground --log=4
+docker run --rm -p 3128:3128 px-go \
+  --server=corp-proxy:8080 --auth=NONE --gateway --foreground --log=4 \
+  --allow='10.0.0.0/8,172.16.0.0/12,192.168.0.0/16' \
+  --noproxy='localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16'
 ```
 
-Image: `ghcr.io/blackdark/px-go:latest`. For Compose, Kubernetes, and cluster-wide proxy setup see [Docker & Kubernetes](docs/docker-kubernetes.md).
+Image: `ghcr.io/blackdark/px-go:latest`. See [Docker & Kubernetes](docs/docker-kubernetes.md) and [network defaults](docs/deployment.md#recommended-network-defaults).
 
 ## Documentation
 
@@ -60,7 +65,7 @@ Image: `ghcr.io/blackdark/px-go:latest`. For Compose, Kubernetes, and cluster-wi
 | [Authentication](docs/authentication.md) | Upstream SSPI, NTLM, Kerberos, client auth, K8s secrets |
 | [VM & bare metal](docs/vm-bare-metal.md) | systemd, per-service, `hostonly` / gateway |
 | [Docker & Kubernetes](docs/docker-kubernetes.md) | Compose, K8s manifests, sizing |
-| [Windows](docs/windows.md) | SSPI, WSL2, Task Scheduler, `pxw.exe` |
+| [Windows](docs/windows.md) | SSPI, WSL2, Task Scheduler, release binary names |
 | [Security](docs/security.md) | Open-proxy risk, credentials, TLS |
 
 Contributor notes: [AGENTS.md](AGENTS.md).

@@ -46,7 +46,23 @@ Tighten further when you know client subnets (e.g. `10.244.0.0/16` for pod CIDR 
 
 ### Upstream auth in examples
 
-Deployment examples assume an upstream proxy with **no authentication**. If your corporate proxy requires NTLM, Negotiate, or passwords, see [Authentication](authentication.md).
+Most deployment examples assume an upstream proxy with **no authentication** (`auth=NONE`).
+
+**Exception:** [Windows](windows.md) and [WSL](windows.md#wsl2-use-windows-login-via-sspi) examples use **SSPI** (`auth=NEGOTIATE`) with the logged-on Windows user — omit `username`/`password` there. Set `auth=NONE` on Windows if your upstream needs no login.
+
+For NTLM, passwords, Kerberos, and client auth, see [Authentication](authentication.md).
+
+## When not to use each pattern
+
+| Pattern | Avoid when |
+|---|---|
+| Loopback (`127.0.0.1`) | Other hosts or containers on the same machine need px — use `hostonly` or `gateway` |
+| `hostonly` | Remote machines on the LAN need px — use `gateway` + firewall + `allow` |
+| `gateway` | Only one local app needs egress — use loopback; gateway exposes a network listener |
+| px inside WSL | You want Windows SSPI / domain login — run px on Windows instead |
+| Shared K8s Deployment | Each pod needs different upstream credentials — use sidecar or per-namespace px |
+| Sidecar per pod | Simple cluster with one shared upstream account — shared Service is simpler |
+| SSPI / Task Scheduler | Service must run without anyone logged on — use explicit [service credentials](authentication.md#upstream-explicit-username-and-password) |
 
 ## Config basics
 
