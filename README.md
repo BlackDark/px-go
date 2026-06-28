@@ -180,10 +180,237 @@ px-go ships two Windows binaries in each release zip:
 - **Verbose debugging**: Temporarily use `px.exe` (console build, without `-H=windowsgui`) and run manually with `--verbose` to see full debug output.
 
 ## Docker
+
 ```bash
 docker build -f docker/Dockerfile -t px-go .
 docker run --rm -p 3128:3128 px-go --gateway --foreground --log=4
 ```
+
+Released images: `ghcr.io/blackdark/px-go:latest` (multi-arch).
+
+### Cluster / shared proxy (Docker & Kubernetes)
+
+Use px-go as a **central outbound proxy** when many containers or hosts must reach the internet through a corporate upstream (NTLM/Negotiate/Basic). Linux containers **cannot use Windows SSPI** — provide explicit upstream credentials or Kerberos keytabs.
+
+#### Recommended `px.ini` (shared proxy)
+
+```ini
+[proxy]
+server = corp-proxy.example.com:8080
+username = DOMAIN\service-account
+; password via PX_PASSWORD env / K8s Secret — never commit
+
+gateway = 1
+; Restrict clients — never leave allow wide open on a shared proxy
+allow = 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+; Bypass upstream for private/cluster traffic
+noproxy = .svc,.cluster.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,localhost,127.0.0.1
+
+auth = NTLM
+port = 3128
+
+[client]
+; Require auth from clients when the proxy is reachable beyond localhost
+client_auth = BASIC
+client_username = proxyuser
+; client password via PX_CLIENT_PASSWORD env / Secret
+
+[settings]
+threads = 128
+idle = 300
+socktimeout = 20
+proxyreload = 300
+foreground = 1
+log = 4
+log_level = INFO
+```
+
+CLI equivalents for containers without a config file:
+
+```bash
+px-go \
+  --gateway \
+  --server=corp-proxy:8080 \
+  --username='DOMAIN\user' \
+  --auth=NTLM \
+  --allow='10.0.0.0/8,172.16.0.0/12' \
+  --noproxy='.svc,.cluster.local,10.0.0.0/8' \
+  --client-auth=BASIC \
+  --client-username=proxyuser \
+  --foreground \
+  --log=4
+```
+
+#### Docker Compose (shared service)
+
+```yaml
+services:
+  px:
+    image: ghcr.io/blackdark/px-go:latest
+    ports:
+      - "3128:3128"
+    environment:
+      PX_SERVER: corp-proxy.example.com:8080
+      PX_USERNAME: "DOMAIN\\service-account"
+      PX_PASSWORD: ${PX_PASSWORD}
+      PX_CLIENT_AUTH: BASIC
+      PX_CLIENT_USERNAME: proxyuser
+      PX_CLIENT_PASSWORD: ${PX_CLIENT_PASSWORD}
+    command:
+      - --gateway
+      - --allow=172.16.0.0/12,192.168.0.0/16
+      - --noproxy=.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12
+      - --foreground
+      - --log=4
+    deploy:
+      resources:
+        limits:
+          memory: 512Mi
+          cpu: "1"
+        requests:
+          memory: 128Mi
+          cpu: 100m
+    healthcheck:
+      test: ["CMD", "/px-go", "--health-check", "--port=3128"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+```
+
+Point other services at `http://px:3128` via `HTTP_PROXY` / `HTTPS_PROXY` and set `NO_PROXY` for internal hosts.
+
+#### Kubernetes (Deployment + Service)
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: px-credentials
+stringData:
+  PX_PASSWORD: "change-me"
+  PX_CLIENT_PASSWORD: "change-me"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: px-go
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: px-go
+  template:
+    metadata:
+      labels:
+        app: px-go
+    spec:
+      containers:
+        - name: px-go
+          image: ghcr.io/blackdark/px-go:latest
+          ports:
+            - containerPort: 3128
+              name: proxy
+          env:
+            - name: PX_SERVER
+              value: corp-proxy.example.com:8080
+            - name: PX_USERNAME
+              value: "DOMAIN\\service-account"
+            - name: PX_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: px-credentials
+                  key: PX_PASSWORD
+            - name: PX_CLIENT_AUTH
+              value: BASIC
+            - name: PX_CLIENT_USERNAME
+              value: proxyuser
+            - name: PX_CLIENT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: px-credentials
+                  key: PX_CLIENT_PASSWORD
+          args:
+            - --gateway
+            - --allow=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+            - --noproxy=.svc,.cluster.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,localhost,127.0.0.1
+            - --foreground
+            - --log=4
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["/px-go", "--health-check", "--port=3128"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command: ["/px-go", "--health-check", "--port=3128"]
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: px-go
+spec:
+  selector:
+    app: px-go
+  ports:
+    - port: 3128
+      targetPort: proxy
+```
+
+Wire client pods:
+
+```yaml
+env:
+  - name: HTTP_PROXY
+    value: http://proxyuser:$(PX_CLIENT_PASSWORD)@px-go:3128
+  - name: HTTPS_PROXY
+    value: http://proxyuser:$(PX_CLIENT_PASSWORD)@px-go:3128
+  - name: NO_PROXY
+    value: .svc,.cluster.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,localhost,127.0.0.1
+```
+
+Add **NetworkPolicy** so only intended namespaces can reach port 3128.
+
+**Sidecar vs shared service**
+
+| Pattern | When to use |
+|---|---|
+| **Shared Deployment/Service** | Many pods, one credential set, easier ops |
+| **Sidecar per pod** | Pod-specific upstream auth or isolation |
+| **DaemonSet (hostNetwork)** | Node-level proxy for non-K8s workloads on the same host; pair with `hostonly=1` |
+
+#### Sizing guidelines
+
+| Load | Replicas | CPU (limit) | Memory (limit) | `threads` |
+|---|---|---|---|---|
+| Dev / CI (~10 concurrent setups) | 1 | 250m | 128Mi | 64 |
+| Typical cluster (~50 pods, bursty) | 2 | 500m–1 | 256–512Mi | 128 |
+| Heavy AI / long-lived tunnels | 2–3 | 1–2 | 512Mi–1Gi | 256 |
+
+Notes:
+
+- `threads` limits **connection setup** (dial + upstream auth), not active CONNECT tunnels — hundreds of idle tunnels are fine with `threads=128`.
+- Raise `idle` (300+) for agents that keep connections open between bursts.
+- Watch **file descriptors** under heavy tunnel load; increase container `ulimit` / node limits if you see `too many open files`.
+- Distroless image has no shell — use `exec` probes and env/CLI config only.
+
+#### Security warnings (read before exposing cluster-wide)
+
+1. **Open proxy risk** — `gateway=1` with permissive `allow` turns px into an open relay through your corporate network. Restrict `allow` to pod/node CIDRs and add **client_auth**.
+2. **No TLS to px** — Traffic between clients and px-go is plain HTTP. Anyone on the cluster network can intercept credentials in proxy URLs unless you isolate with NetworkPolicy or place px behind an TLS-terminating front-end.
+3. **Upstream credentials in Secrets** — Service accounts with domain passwords are high-value targets. Use dedicated accounts, rotation, and minimal RBAC on the Secret.
+4. **SSPI unavailable in Linux containers** — Negotiate/NTLM via OS identity will not work; use explicit `--username` / `--password` or Kerberos keytab (`kerberos=1` + mounted keytab).
+5. **`/PxQuit` shutdown** — Callable from loopback and local interface IPs. Do not expose px admin paths outside the trust boundary; prefer SIGTERM via Kubernetes lifecycle.
+6. **Single point of failure** — If px-go is down, all configured outbound traffic fails. Run ≥2 replicas and use a Service with readiness probes.
+7. **PAC / WPAD** — If using `--pac`, the container must reach the PAC URL; corporate DNS may differ from cluster DNS — configure `dnsConfig` or static PAC mounts.
+8. **Audit & abuse** — A compromised pod with proxy access can exfiltrate data via CONNECT. Combine NetworkPolicy, client auth, and corporate egress logging.
 
 ## Notes
 - Windows SSPI is build-tagged and compiled without CGO.
