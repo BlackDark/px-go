@@ -56,11 +56,12 @@ Image: `ghcr.io/blackdark/px-go:latest`. For Compose, Kubernetes, and cluster-wi
 
 | Guide | Contents |
 |---|---|
-| [Deployment overview](docs/deployment.md) | Choose a pattern (VM, per-service, Docker, K8s, Windows) |
-| [VM & bare metal](docs/vm-bare-metal.md) | systemd, per-service instances, `hostonly` / gateway on servers |
+| [Deployment overview](docs/deployment.md) | Choose a pattern; shared `allow` / `noproxy` defaults |
+| [Authentication](docs/authentication.md) | Upstream SSPI, NTLM, Kerberos, client auth, K8s secrets |
+| [VM & bare metal](docs/vm-bare-metal.md) | systemd, per-service, `hostonly` / gateway |
 | [Docker & Kubernetes](docs/docker-kubernetes.md) | Compose, K8s manifests, sizing |
-| [Windows](docs/windows.md) | Task Scheduler, SSPI, headless `pxw.exe` |
-| [Security](docs/security.md) | Open-proxy risk, credentials, TLS, operational hazards |
+| [Windows](docs/windows.md) | SSPI, WSL2, Task Scheduler, `pxw.exe` |
+| [Security](docs/security.md) | Open-proxy risk, credentials, TLS |
 
 Contributor notes: [AGENTS.md](AGENTS.md).
 

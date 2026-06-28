@@ -1,30 +1,28 @@
 # Docker & Kubernetes
 
-Run px-go as a **central outbound proxy** when many containers must reach the internet through a corporate upstream (NTLM/Negotiate/Basic).
+Run px-go as a **central outbound proxy** when many containers must reach the internet through a corporate upstream.
 
-Linux containers **cannot use Windows SSPI** — provide explicit upstream credentials or Kerberos keytabs. See [security considerations](security.md).
+Examples below assume the **upstream proxy requires no authentication**. For NTLM, Negotiate, or password-based upstream auth, see [Authentication](authentication.md).
 
 Back to [deployment overview](deployment.md).
 
 ## Recommended `px.ini` (shared proxy)
 
+Uses [network defaults from the deployment guide](deployment.md#recommended-network-defaults):
+
 ```ini
 [proxy]
 server = corp-proxy.example.com:8080
-username = DOMAIN\service-account
-; password via PX_PASSWORD env / K8s Secret — never commit
+auth = NONE
 
 gateway = 1
 allow = 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-noproxy = .svc,.cluster.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,localhost,127.0.0.1
+noproxy = .svc,.svc.cluster.local,.cluster.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16
 
-auth = NTLM
 port = 3128
 
 [client]
-client_auth = BASIC
-client_username = proxyuser
-; client password via PX_CLIENT_PASSWORD env / Secret
+client_auth = NONE
 
 [settings]
 threads = 128
@@ -36,18 +34,19 @@ log = 4
 log_level = INFO
 ```
 
+> **Upstream auth required?** Add `username`, `PX_PASSWORD`, and `auth=NTLM` — [Authentication → Kubernetes](authentication.md#kubernetes-upstream-credentials).
+>
+> **Exposed beyond a trusted cluster network?** Enable `client_auth` — [Authentication → client auth](authentication.md#client-authentication).
+
 CLI equivalent:
 
 ```bash
 px-go \
   --gateway \
   --server=corp-proxy:8080 \
-  --username='DOMAIN\user' \
-  --auth=NTLM \
-  --allow='10.0.0.0/8,172.16.0.0/12' \
-  --noproxy='.svc,.cluster.local,10.0.0.0/8' \
-  --client-auth=BASIC \
-  --client-username=proxyuser \
+  --auth=NONE \
+  --allow='10.0.0.0/8,172.16.0.0/12,192.168.0.0/16' \
+  --noproxy='.svc,.svc.cluster.local,.cluster.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,localhost,127.0.0.1' \
   --foreground \
   --log=4
 ```
@@ -56,7 +55,10 @@ px-go \
 
 ```bash
 docker build -f docker/Dockerfile -t px-go .
-docker run --rm -p 3128:3128 px-go --gateway --foreground --log=4
+docker run --rm -p 3128:3128 \
+  px-go --server=corp-proxy:8080 --gateway --foreground --log=4 \
+  --allow='10.0.0.0/8,172.16.0.0/12,192.168.0.0/16' \
+  --noproxy='localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16'
 ```
 
 Released images: `ghcr.io/blackdark/px-go:latest` (multi-arch).
@@ -71,15 +73,11 @@ services:
       - "3128:3128"
     environment:
       PX_SERVER: corp-proxy.example.com:8080
-      PX_USERNAME: "DOMAIN\\service-account"
-      PX_PASSWORD: ${PX_PASSWORD}
-      PX_CLIENT_AUTH: BASIC
-      PX_CLIENT_USERNAME: proxyuser
-      PX_CLIENT_PASSWORD: ${PX_CLIENT_PASSWORD}
     command:
       - --gateway
-      - --allow=172.16.0.0/12,192.168.0.0/16
-      - --noproxy=.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12
+      - --auth=NONE
+      - --allow=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      - --noproxy=.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16
       - --foreground
       - --log=4
     deploy:
@@ -95,21 +93,21 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-```
 
-Point other services at `http://px:3128` via `HTTP_PROXY` / `HTTPS_PROXY` and set `NO_PROXY` for internal hosts.
+  app:
+    depends_on:
+      - px
+    environment:
+      HTTP_PROXY: http://px:3128
+      HTTPS_PROXY: http://px:3128
+      NO_PROXY: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local
+```
 
 ## Kubernetes
 
+Replace `10.0.0.0/8` in `allow` with your **pod CIDR** if it differs (e.g. `10.244.0.0/16`).
+
 ```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: px-credentials
-stringData:
-  PX_PASSWORD: "change-me"
-  PX_CLIENT_PASSWORD: "change-me"
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -133,26 +131,11 @@ spec:
           env:
             - name: PX_SERVER
               value: corp-proxy.example.com:8080
-            - name: PX_USERNAME
-              value: "DOMAIN\\service-account"
-            - name: PX_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: px-credentials
-                  key: PX_PASSWORD
-            - name: PX_CLIENT_AUTH
-              value: BASIC
-            - name: PX_CLIENT_USERNAME
-              value: proxyuser
-            - name: PX_CLIENT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: px-credentials
-                  key: PX_CLIENT_PASSWORD
           args:
             - --gateway
+            - --auth=NONE
             - --allow=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-            - --noproxy=.svc,.cluster.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,localhost,127.0.0.1
+            - --noproxy=.svc,.svc.cluster.local,.cluster.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16
             - --foreground
             - --log=4
           resources:
@@ -189,24 +172,24 @@ Wire client pods:
 ```yaml
 env:
   - name: HTTP_PROXY
-    value: http://proxyuser:$(PX_CLIENT_PASSWORD)@px-go:3128
+    value: http://px-go:3128
   - name: HTTPS_PROXY
-    value: http://proxyuser:$(PX_CLIENT_PASSWORD)@px-go:3128
+    value: http://px-go:3128
   - name: NO_PROXY
-    value: .svc,.cluster.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,localhost,127.0.0.1
+    value: .svc,.svc.cluster.local,.cluster.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16
 ```
 
-Add **NetworkPolicy** so only intended namespaces can reach port 3128.
+Add **NetworkPolicy** so only intended namespaces reach port 3128. For upstream or client credentials, see [Authentication](authentication.md).
 
 ## Deployment patterns
 
 | Pattern | When to use |
 |---|---|
-| **Shared Deployment/Service** | Many pods, one credential set, easier ops |
-| **Sidecar per pod** | Pod-specific upstream auth or isolation |
-| **DaemonSet (hostNetwork)** | Node-level proxy for non-K8s workloads on the same host; pair with `hostonly=1` on the node |
+| **Shared Deployment/Service** | Many pods, one px instance, easier ops |
+| **Sidecar per pod** | Pod-specific upstream config or isolation |
+| **DaemonSet (hostNetwork)** | Node-level proxy; pair with `hostonly=1` on the node |
 
-For VM/bare-metal equivalents of sidecar and per-host proxy, see [VM & bare metal](vm-bare-metal.md).
+For VM/bare-metal equivalents, see [VM & bare metal](vm-bare-metal.md).
 
 ## Sizing
 
@@ -225,5 +208,6 @@ Notes:
 
 ## See also
 
+- [Authentication](authentication.md)
 - [Security considerations](security.md)
 - [VM & bare metal](vm-bare-metal.md)
