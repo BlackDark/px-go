@@ -58,10 +58,13 @@ idle = 300
 socktimeout = 20
 foreground = 1
 log = 1
+log_file = /var/log/px-go/px-go.log
 log_level = INFO
 ```
 
 > Upstream requires NTLM/passwords? See [Authentication → explicit credentials](authentication.md#upstream-explicit-username-and-password).
+>
+> Logging paths: [deployment guide → Logging](deployment.md#logging).
 
 ### systemd unit
 
@@ -76,6 +79,7 @@ Wants=network-online.target
 Type=simple
 User=pxgo
 Group=pxgo
+LogsDirectory=px-go
 ExecStart=/usr/local/bin/px-go --config=/etc/px-go/px.ini --foreground
 Restart=on-failure
 RestartSec=5
@@ -84,6 +88,8 @@ LimitNOFILE=65535
 [Install]
 WantedBy=multi-user.target
 ```
+
+`LogsDirectory=px-go` creates `/var/log/px-go` owned by the service user (matches `log_file` above).
 
 ```bash
 sudo useradd -r -s /usr/sbin/nologin pxgo
@@ -278,6 +284,7 @@ Use `pxw-go.exe` / `pxw.exe` headless. SSPI: [Windows deployment](windows.md).
 
 | Symptom | Check |
 |---|---|
+| Service exits immediately (code 1) | `log=1` without writable path — set `log_file` or `log=2` + `WorkingDirectory`; see [Logging](deployment.md#logging) |
 | `connection refused` on 3128 | `systemctl status px-go`, firewall, `listen` / `gateway` / `hostonly` |
 | 407 / auth failures upstream | [Authentication](authentication.md) — credentials, `auth` type |
 | Works on host, not in container | Host bridge IP, `hostonly=1`, `NO_PROXY` |

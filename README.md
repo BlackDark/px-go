@@ -30,10 +30,11 @@ Config precedence: defaults → `px.ini` → `.env` / `PX_*` → CLI flags. See 
 --listen=127.0.0.1       --port=3128           --gateway / --hostonly
 --username=DOMAIN\\user  --auth=NTLM|NEGOTiate|...
 --client-auth=BASIC      --noproxy=localhost,10.0.0.0/8
+--log=4                  --log-file=/var/log/px-go/px-go.log
 --health-check           --test=http://httpbin.org/get
 ```
 
-Environment variables use `PX_*` (e.g. `PX_SERVER`, `PX_PASSWORD`, `PX_CLIENT_AUTH`).
+Environment variables use `PX_*` (e.g. `PX_SERVER`, `PX_PASSWORD`, `PX_LOG_FILE`, `PX_CLIENT_AUTH`).
 
 ## Build and test
 

@@ -56,6 +56,7 @@ type Settings struct {
 	Foreground  bool
 	Quiet       bool
 	Log         int
+	LogFile     string
 	LogLevel    slog.Level
 }
 
@@ -254,6 +255,7 @@ func applyINI(cfg *Config, path string) error {
 		"proxyreload":     mapSection("settings", "proxyreload"),
 		"foreground":      mapSection("settings", "foreground"),
 		"log":             mapSection("settings", "log"),
+		"log_file":        mapSection("settings", "log_file"),
 		"log_level":       mapSection("settings", "log_level"),
 	}
 	return applyValues(cfg, values)
@@ -264,7 +266,7 @@ func applyEnv(cfg *Config) {
 	for _, key := range []string{
 		"server", "pac", "pac_encoding", "listen", "port", "gateway", "hostonly", "allow", "noproxy", "useragent", "username", "auth", "kerberos",
 		"client_username", "client_auth", "client_nosspi",
-		"workers", "threads", "idle", "socktimeout", "proxyreload", "foreground", "log", "log_level",
+		"workers", "threads", "idle", "socktimeout", "proxyreload", "foreground", "log", "log_file", "log_level",
 		"config", "quit", "test", "install", "uninstall", "save", "version", "health_check",
 	} {
 		if v, ok := os.LookupEnv("PX_" + strings.ToUpper(key)); ok {
@@ -357,6 +359,8 @@ func applyValues(cfg *Config, values map[string]string) error {
 				return fmt.Errorf("invalid log %q: %w", rawValue, err)
 			}
 			cfg.Settings.Log = v
+		case "log_file":
+			cfg.Settings.LogFile = rawValue
 		case "log_level":
 			level, err := parseLevel(rawValue)
 			if err != nil {
@@ -439,6 +443,7 @@ func (c Config) Save(path string) error {
 	_, _ = settingsSection.NewKey("proxyreload", strconv.Itoa(int(c.Settings.ProxyReload.Seconds())))
 	_, _ = settingsSection.NewKey("foreground", boolString(c.Settings.Foreground))
 	_, _ = settingsSection.NewKey("log", strconv.Itoa(c.Settings.Log))
+	_, _ = settingsSection.NewKey("log_file", c.Settings.LogFile)
 	_, _ = settingsSection.NewKey("log_level", c.Settings.LogLevel.String())
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -629,39 +634,43 @@ type nopCloser struct{}
 
 func (nopCloser) Close() error { return nil }
 
+func (c Config) resolveLogPath() string {
+	if c.Settings.LogFile != "" {
+		return c.Settings.LogFile
+	}
+	switch c.Settings.Log {
+	case 1:
+		return filepath.Join(scriptDir(), "debug.log")
+	case 2:
+		return filepath.Join(mustGetwd(), "debug.log")
+	case 3:
+		return filepath.Join(mustGetwd(), fmt.Sprintf("debug-%d-%d.log", c.Proxy.Port, time.Now().UnixNano()))
+	default:
+		return ""
+	}
+}
+
 func NewLogger(cfg Config) (*slog.Logger, io.Closer, error) {
 	output := io.Writer(io.Discard)
 	closer := io.Closer(nopCloser{})
 	if cfg.Settings.Log != 0 {
 		switch cfg.Settings.Log {
-		case 1:
-			path := filepath.Join(scriptDir(), "debug.log")
-			file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-			if err != nil {
-				return nil, nil, err
-			}
-			output = file
-			closer = file
-		case 2:
-			path := filepath.Join(mustGetwd(), "debug.log")
-			file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-			if err != nil {
-				return nil, nil, err
-			}
-			output = file
-			closer = file
-		case 3:
-			path := filepath.Join(mustGetwd(), fmt.Sprintf("debug-%d-%d.log", cfg.Proxy.Port, time.Now().UnixNano()))
-			file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-			if err != nil {
-				return nil, nil, err
-			}
-			output = file
-			closer = file
 		case 4:
 			output = os.Stdout
 		default:
-			output = io.Discard
+			path := cfg.resolveLogPath()
+			if path == "" {
+				break
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return nil, nil, fmt.Errorf("create log directory: %w", err)
+			}
+			file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+			if err != nil {
+				return nil, nil, fmt.Errorf("open log file %s: %w", path, err)
+			}
+			output = file
+			closer = file
 		}
 	}
 	handler := slog.NewTextHandler(output, &slog.HandlerOptions{Level: cfg.Settings.LogLevel})
