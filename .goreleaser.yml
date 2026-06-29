@@ -61,34 +61,14 @@ release:
   draft: false
   prerelease: auto
 
-dockers:
+dockers_v2:
   - ids: [px]
-    use: buildx
     dockerfile: docker/Dockerfile.goreleaser
-    goos: linux
-    goarch: amd64
-    build_flag_templates:
-      - "--platform=linux/amd64"
-    image_templates:
-      - ghcr.io/blackdark/{{ .ProjectName }}:{{ .Version }}-amd64
-      - ghcr.io/blackdark/{{ .ProjectName }}:latest-amd64
-  - ids: [px]
-    use: buildx
-    dockerfile: docker/Dockerfile.goreleaser
-    goos: linux
-    goarch: arm64
-    build_flag_templates:
-      - "--platform=linux/arm64"
-    image_templates:
-      - ghcr.io/blackdark/{{ .ProjectName }}:{{ .Version }}-arm64
-      - ghcr.io/blackdark/{{ .ProjectName }}:latest-arm64
-
-docker_manifests:
-  - name_template: ghcr.io/blackdark/{{ .ProjectName }}:{{ .Version }}
-    image_templates:
-      - ghcr.io/blackdark/{{ .ProjectName }}:{{ .Version }}-amd64
-      - ghcr.io/blackdark/{{ .ProjectName }}:{{ .Version }}-arm64
-  - name_template: ghcr.io/blackdark/{{ .ProjectName }}:latest
-    image_templates:
-      - ghcr.io/blackdark/{{ .ProjectName }}:latest-amd64
-      - ghcr.io/blackdark/{{ .ProjectName }}:latest-arm64
+    images:
+      - ghcr.io/blackdark/{{ .ProjectName }}
+    tags:
+      - "{{ .Version }}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
