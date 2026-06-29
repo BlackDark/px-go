@@ -72,3 +72,25 @@ func TestGetHostIPsContainsLoopback(t *testing.T) {
 		t.Fatal("expected loopback address")
 	}
 }
+
+func TestLogFileSetting(t *testing.T) {
+	dir := t.TempDir()
+	ini := `[settings]
+log = 1
+log_file = /var/log/px-go/test.log
+`
+	path := filepath.Join(dir, "px.ini")
+	if err := os.WriteFile(path, []byte(ini), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load([]string{"--config=" + path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Settings.LogFile != "/var/log/px-go/test.log" {
+		t.Fatalf("log_file: got %q", cfg.Settings.LogFile)
+	}
+	if got := cfg.resolveLogPath(); got != "/var/log/px-go/test.log" {
+		t.Fatalf("resolveLogPath: got %q", got)
+	}
+}

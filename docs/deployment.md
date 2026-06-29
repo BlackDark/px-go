@@ -74,6 +74,31 @@ Precedence: defaults → `px.ini` → `.env` / `PX_*` → CLI flags. See [px.ini
 | `hostonly=1` | All interfaces (`:port`) | Loopback + IPs on local NICs (Docker/WSL on same host) |
 | `gateway=1` | All interfaces (`:port`) | Remote clients matching `allow` |
 
+## Logging
+
+px-go does **not** print to the terminal unless configured. Startup messages go through `slog` according to `log` and `log_file`.
+
+| `log` | Default output | Use when |
+|---|---|---|
+| `0` | None | Quiet / rely on `/health` only |
+| `1` | File: `<binary-dir>/debug.log` | Simple file logging |
+| `2` | File: `<cwd>/debug.log` | With systemd `WorkingDirectory` |
+| `3` | File: unique name in cwd | Debug sessions |
+| `4` | stdout | Interactive runs, systemd journal |
+
+**`log_file`** overrides the file path for modes `1`–`3` (recommended for systemd):
+
+```ini
+[settings]
+log = 1
+log_file = /var/log/px-go/px-go.log
+log_level = INFO
+```
+
+CLI / env: `--log-file=/var/log/px-go/px-go.log`, `PX_LOG_FILE=...`
+
+> **systemd tip:** Do not use `log=1` without `log_file` when the binary lives in `/usr/local/bin` — the service user often cannot write there. Use `log_file` under `/var/log/px-go/` or `log=2` with `WorkingDirectory=/var/lib/px-go`.
+
 ## Security
 
 Shared or gateway deployments carry real risk (open relay, credential exposure, no TLS to px). Read [security considerations](security.md) before exposing px beyond localhost.

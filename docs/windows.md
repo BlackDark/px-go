@@ -77,6 +77,7 @@ noproxy = localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.
 
 [settings]
 log = 1
+log_file = C:\Tools\px\px-go.log
 threads = 128
 idle = 300
 foreground = 0
@@ -88,7 +89,7 @@ If the upstream proxy needs **no authentication**, set `auth = NONE`. For explic
 
 - Task must run **only when the user is logged on** — SSPI needs an interactive session token.
 - Do not use "Run whether user is logged on or not" for SSPI.
-- `log=1` (file next to binary) or `log=2` (cwd). `log=4` (stdout) is empty in headless mode.
+- **Logging:** `log_file` sets an explicit path; otherwise `log=1` writes next to the binary, `log=2` to cwd, `log=4` to stdout (empty in headless `pxw-go.exe`). See [Logging](deployment.md#logging).
 
 ---
 
@@ -112,6 +113,7 @@ threads = 128
 idle = 300
 foreground = 0
 log = 1
+log_file = C:\Tools\px\px-go.log
 ```
 
 Start px in a logged-on session:

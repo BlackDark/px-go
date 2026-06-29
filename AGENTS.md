@@ -113,7 +113,7 @@ CI uses `golangci-lint-action@v9` with golangci-lint v2.12.2. The `.golangci.yml
 - **Zero-cost debug logs**: `slog.Debug` calls are no-ops when log level > DEBUG — no allocations in hot path
 - **Platform proxy discovery**: On Windows uses WinHTTP to get IE proxy config (PAC URL or server list); logged at INFO on first discovery
 - **Semaphore release before relay**: CONNECT tunnels release their concurrency slot after setup (dial + auth) completes — the bidirectional relay runs without holding a slot, allowing hundreds of concurrent tunnels with threads=128
-- **Windows headless build**: `-H=windowsgui` prevents console popup; requires file-based logging (`log=1`)
+- **Windows headless build**: `-H=windowsgui` prevents console popup; requires file-based logging (`log=1` or `log_file`)
 
 ## Config
 
@@ -135,5 +135,6 @@ See `px.ini` for full commented config. Key flags:
 threads = 128    # Only gates connection setup, not active tunnels
 idle = 300       # AI tools keep connections idle for minutes between bursts
 socktimeout = 20 # Auth handshake timeout
-log = 1          # File logging for headless operation
+log = 1
+log_file = /var/log/px-go/px-go.log   # explicit path for systemd (overrides binary-dir default)
 ```
