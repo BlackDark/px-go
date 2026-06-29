@@ -73,6 +73,58 @@ func TestGetHostIPsContainsLoopback(t *testing.T) {
 	}
 }
 
+func TestResolvePACPath(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "px.ini")
+	pacPath := filepath.Join(dir, "corp.pac")
+	if err := os.WriteFile(configPath, []byte("[proxy]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name   string
+		pac    string
+		config string
+		want   string
+	}{
+		{"http url", "http://example.com/wpad.dat", configPath, "http://example.com/wpad.dat"},
+		{"file url", "file:///etc/proxy.pac", configPath, "file:///etc/proxy.pac"},
+		{"absolute", pacPath, configPath, pacPath},
+		{"relative to config", "corp.pac", configPath, pacPath},
+		{"empty", "", configPath, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolvePACPath(tc.pac, tc.config); got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPACRelativePathLoad(t *testing.T) {
+	dir := t.TempDir()
+	pacContent := `function FindProxyForURL(url, host) { return "DIRECT"; }`
+	if err := os.WriteFile(filepath.Join(dir, "local.pac"), []byte(pacContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ini := `[proxy]
+pac = local.pac
+`
+	configPath := filepath.Join(dir, "px.ini")
+	if err := os.WriteFile(configPath, []byte(ini), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load([]string{"--config=" + configPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, "local.pac")
+	if cfg.Proxy.PAC != want {
+		t.Fatalf("pac path: got %q want %q", cfg.Proxy.PAC, want)
+	}
+}
+
 func TestLogFileSetting(t *testing.T) {
 	dir := t.TempDir()
 	ini := `[settings]
