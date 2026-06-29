@@ -149,6 +149,26 @@ func (c *Config) normalize() {
 	if c.Proxy.Gateway || c.Proxy.HostOnly {
 		c.Proxy.Listen = nil
 	}
+	c.Proxy.PAC = resolvePACPath(c.Proxy.PAC, c.Special.ConfigPath)
+}
+
+func resolvePACPath(pac, configPath string) string {
+	pac = strings.TrimSpace(pac)
+	if pac == "" {
+		return ""
+	}
+	lower := strings.ToLower(pac)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "file://") {
+		return pac
+	}
+	if filepath.IsAbs(pac) {
+		return pac
+	}
+	base := scriptDir()
+	if configPath != "" {
+		base = filepath.Dir(configPath)
+	}
+	return filepath.Join(base, pac)
 }
 
 func (c Config) validate() error {

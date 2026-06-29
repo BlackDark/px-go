@@ -113,7 +113,17 @@ auth = NEGOTIATE
 username = DOMAIN\user
 ```
 
-Or PAC with SSPI on Windows (no username). Ensure the host/container can resolve and reach the PAC URL.
+**Local PAC file** (no HTTP fetch) — any of:
+
+```ini
+pac = /etc/px-go/corp.pac
+pac = file:///etc/px-go/corp.pac
+pac = corp.pac
+```
+
+With `--config=/etc/px-go/px.ini`, a relative name like `corp.pac` resolves to `/etc/px-go/corp.pac`. Without `--config`, relative paths resolve next to the px-go binary.
+
+Or PAC with SSPI on Windows (no username). Ensure HTTP PAC URLs are reachable from the host/container.
 
 ---
 
