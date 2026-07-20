@@ -5,7 +5,7 @@ go 1.26
 require (
 	github.com/Azure/go-ntlmssp v0.1.1
 	github.com/bigkraig/go-ntlm v0.0.0-20160204225210-8856fdbdc17d
-	github.com/dop251/goja v0.0.0-20260701091749-b07b74453ea9
+	github.com/dop251/goja v0.0.0-20260719185829-0fc1d42c1dc9
 	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/joho/godotenv v1.5.1
 	github.com/zalando/go-keyring v0.2.8
@@ -17,7 +17,7 @@ require (
 require (
 	github.com/ThomsonReutersEikon/go-ntlm v0.0.0-20181130171125-cf23bd1ecf18 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
-	github.com/dlclark/regexp2/v2 v2.2.1 // indirect
+	github.com/dlclark/regexp2/v2 v2.5.2 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/pprof v0.0.0-20260507013755-92041b743c96 // indirect
