@@ -110,6 +110,7 @@ func (e *Evaluator) Close() {
 	defer e.mu.Unlock()
 	e.closed = true
 	e.pool.Store(nil)
+	e.loadWait.Broadcast()
 }
 
 func (e *Evaluator) dnsResolve(host string) string {
@@ -166,7 +167,7 @@ func (e *Evaluator) ensureLoaded(ctx context.Context) {
 		e.mu.Unlock()
 		return
 	}
-	for !e.loadedLocked() && e.reloading {
+	for !e.closed && !e.loadedLocked() && e.reloading {
 		e.loadWait.Wait()
 	}
 	if e.closed {
@@ -195,13 +196,8 @@ func (e *Evaluator) ensureLoaded(ctx context.Context) {
 }
 
 func (e *Evaluator) backgroundReload() {
-	timeout := e.client.Timeout
-	if timeout <= 0 {
-		timeout = 15 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	if err := e.loadAndSwap(ctx); err != nil {
+	// Timeout is applied inside loadAndSwap via WithoutCancel + client timeout.
+	if err := e.loadAndSwap(context.Background()); err != nil {
 		e.logger.Debug("pac reload failed", "err", err)
 		e.mu.Lock()
 		if !e.closed {
