@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,6 +21,21 @@ function FindProxyForURL(url, host) {
   if (host == "socks.example.com") return "SOCKS5 socks.com:1080";
   return "DIRECT";
 }`
+
+func waitNotReloading(t *testing.T, e *Evaluator) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		e.mu.Lock()
+		reloading := e.reloading
+		e.mu.Unlock()
+		if !reloading {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("still reloading")
+}
 
 func TestPACLoadAndEvaluate(t *testing.T) {
 	dir := t.TempDir()
@@ -79,6 +95,7 @@ func TestPACEvalNotBlockedByReloadFetch(t *testing.T) {
 		default:
 			close(releaseSecond)
 		}
+		waitNotReloading(t, e)
 	})
 	if got := e.FindProxyForURL(context.Background(), "http://direct.example.com", "direct.example.com"); got != "DIRECT" {
 		t.Fatalf("initial load: got %q", got)
@@ -86,11 +103,8 @@ func TestPACEvalNotBlockedByReloadFetch(t *testing.T) {
 
 	time.Sleep(40 * time.Millisecond)
 
-	reloadDone := make(chan struct{})
-	go func() {
-		_ = e.FindProxyForURL(context.Background(), "http://direct.example.com", "direct.example.com")
-		close(reloadDone)
-	}()
+	// Cache hit kicks async soft reload; must not block this caller.
+	_ = e.FindProxyForURL(context.Background(), "http://direct.example.com", "direct.example.com")
 
 	select {
 	case <-blockSecond:
@@ -113,11 +127,7 @@ func TestPACEvalNotBlockedByReloadFetch(t *testing.T) {
 	}
 
 	close(releaseSecond)
-	select {
-	case <-reloadDone:
-	case <-time.After(2 * time.Second):
-		t.Fatal("reload never finished")
-	}
+	waitNotReloading(t, e)
 }
 
 func TestPACNoDeadlockOnPoolSwapWhileSaturated(t *testing.T) {
@@ -162,15 +172,19 @@ func TestPACNoDeadlockOnPoolSwapWhileSaturated(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("waiter never reached checkout")
 	}
-	time.Sleep(20 * time.Millisecond) // block on <-p.slots
+	// Let waiter enter <-p.slots before we swap the active pool.
+	for i := 0; i < 100; i++ {
+		runtime.Gosched()
+	}
 
 	newPool, err := e.buildPool(simplePAC)
 	if err != nil {
 		t.Fatal(err)
 	}
 	e.mu.Lock()
-	e.pool.Store(newPool)
 	e.cache.invalidate()
+	newPool.gen = e.cache.generation()
+	e.pool.Store(newPool)
 	e.mu.Unlock()
 
 	e.onBeforeCheckout = nil
@@ -280,6 +294,7 @@ func TestPACFailedReloadDoesNotHammer(t *testing.T) {
 	e.mu.Unlock()
 
 	_ = e.FindProxyForURL(context.Background(), "http://direct.example.com/r1", "direct.example.com")
+	waitNotReloading(t, e)
 	afterFail := requests.Load()
 	_ = e.FindProxyForURL(context.Background(), "http://direct.example.com/r2", "direct.example.com")
 	if requests.Load() != afterFail {
@@ -287,5 +302,43 @@ func TestPACFailedReloadDoesNotHammer(t *testing.T) {
 	}
 	if got := e.FindProxyForURL(context.Background(), "http://proxy.example.com/x", "proxy.example.com"); got != "proxy1.com:8080" {
 		t.Fatalf("old pool should remain after failed reload: %q", got)
+	}
+}
+
+func TestPACHTTPNonOKRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`function FindProxyForURL(url, host) { return "PROXY evil:1"; }`))
+	}))
+	defer srv.Close()
+
+	e := New(srv.URL, "utf-8", time.Minute, slog.Default())
+	if got := e.FindProxyForURL(context.Background(), "http://x.com/", "x.com"); got != "DIRECT" {
+		t.Fatalf("non-OK PAC fetch should stay DIRECT: got %q", got)
+	}
+	if e.pool.Load() != nil {
+		t.Fatal("non-OK fetch must not install a pool")
+	}
+}
+
+func TestPACCloseDropsInFlightSwap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "proxy.pac")
+	if err := os.WriteFile(path, []byte(simplePAC), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e := New(path, "utf-8", time.Minute, slog.Default())
+	if got := e.FindProxyForURL(context.Background(), "http://direct.example.com/", "direct.example.com"); got != "DIRECT" {
+		t.Fatalf("warmup: %q", got)
+	}
+	e.Close()
+	if err := e.loadAndSwap(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if e.pool.Load() != nil {
+		t.Fatal("Close must prevent loadAndSwap from resurrecting pool")
+	}
+	if got := e.FindProxyForURL(context.Background(), "http://proxy.example.com/", "proxy.example.com"); got != "DIRECT" {
+		t.Fatalf("after Close expected DIRECT, got %q", got)
 	}
 }

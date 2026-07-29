@@ -196,6 +196,8 @@ func (s *Server) getPAC() *pac.Evaluator {
 func (s *Server) ensurePlatformPAC(source string) *pac.Evaluator {
 	s.pacMu.Lock()
 	defer s.pacMu.Unlock()
+	// First discovered PAC URL wins for the process lifetime; later platform
+	// updates with a different PAC path are ignored until restart.
 	if s.pac == nil {
 		s.logger.Info("discovered PAC from platform", "pac", source)
 		s.pac = pac.New(source, s.cfg.Proxy.PACEncoding, s.cfg.Settings.ProxyReload, s.logger)

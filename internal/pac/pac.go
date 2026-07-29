@@ -2,6 +2,7 @@ package pac
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -25,6 +26,7 @@ type pacSlot struct {
 
 type runtimePool struct {
 	slots chan *pacSlot
+	gen   uint64 // cache generation at pool publish time
 }
 
 type Evaluator struct {
@@ -39,6 +41,7 @@ type Evaluator struct {
 	loadWait  *sync.Cond
 	lastLoad  time.Time
 	reloading bool
+	closed    bool
 	pool      atomic.Pointer[runtimePool]
 	cache     *resultCache
 
@@ -69,8 +72,13 @@ func New(source, encoding string, reloadInterval time.Duration, logger *slog.Log
 }
 
 func (e *Evaluator) FindProxyForURL(ctx context.Context, rawURL, host string) string {
-	e.ensureLoaded(ctx)
 	key := cacheKey(rawURL, host)
+	// Serve cache without waiting on soft reload.
+	if cached, ok := e.cache.get(key); ok {
+		e.kickReloadIfStale()
+		return cached
+	}
+	e.ensureLoaded(ctx)
 	if cached, ok := e.cache.get(key); ok {
 		return cached
 	}
@@ -78,7 +86,6 @@ func (e *Evaluator) FindProxyForURL(ctx context.Context, rawURL, host string) st
 	if p == nil {
 		return "DIRECT"
 	}
-	gen := e.cache.generation()
 	if e.onBeforeCheckout != nil {
 		e.onBeforeCheckout(p)
 	}
@@ -93,13 +100,15 @@ func (e *Evaluator) FindProxyForURL(ctx context.Context, rawURL, host string) st
 		return "DIRECT"
 	}
 	out := normalizeProxyResult(result.String())
-	e.cache.putIfGen(key, out, gen)
+	// Bind put to the pool's generation so a concurrent reload cannot accept a stale result.
+	e.cache.putIfGen(key, out, p.gen)
 	return out
 }
 
 func (e *Evaluator) Close() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.closed = true
 	e.pool.Store(nil)
 }
 
@@ -137,38 +146,40 @@ func (e *Evaluator) loadedLocked() bool {
 	return e.pool.Load() != nil
 }
 
+func (e *Evaluator) kickReloadIfStale() {
+	e.mu.Lock()
+	if e.closed || !e.loadedLocked() || !e.staleLocked() || e.reloading {
+		e.mu.Unlock()
+		return
+	}
+	e.reloading = true
+	e.mu.Unlock()
+	go e.backgroundReload()
+}
+
 // ensureLoaded fetches/parses PAC outside the eval critical section.
-// Soft reload: one goroutine fetches while others keep using the stale pool.
+// Soft reload runs asynchronously so routing is never blocked on fetch.
 // Cold start: waiters block on loadWait until the first load finishes.
 func (e *Evaluator) ensureLoaded(ctx context.Context) {
 	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		return
+	}
 	for !e.loadedLocked() && e.reloading {
 		e.loadWait.Wait()
 	}
-	if e.loadedLocked() && !e.staleLocked() {
+	if e.closed {
 		e.mu.Unlock()
 		return
 	}
 	if e.loadedLocked() {
-		if e.reloading {
+		if e.staleLocked() && !e.reloading {
+			e.reloading = true
 			e.mu.Unlock()
+			go e.backgroundReload()
 			return
 		}
-		e.reloading = true
-		e.mu.Unlock()
-		if err := e.loadAndSwap(ctx); err != nil {
-			e.logger.Debug("pac reload failed", "err", err)
-			e.mu.Lock()
-			// Keep old pool; advance lastLoad so we don't hammer the source.
-			e.lastLoad = time.Now()
-			e.reloading = false
-			e.loadWait.Broadcast()
-			e.mu.Unlock()
-			return
-		}
-		e.mu.Lock()
-		e.reloading = false
-		e.loadWait.Broadcast()
 		e.mu.Unlock()
 		return
 	}
@@ -176,6 +187,31 @@ func (e *Evaluator) ensureLoaded(ctx context.Context) {
 	e.mu.Unlock()
 	if err := e.loadAndSwap(ctx); err != nil {
 		e.logger.Debug("pac load failed", "err", err)
+	}
+	e.mu.Lock()
+	e.reloading = false
+	e.loadWait.Broadcast()
+	e.mu.Unlock()
+}
+
+func (e *Evaluator) backgroundReload() {
+	timeout := e.client.Timeout
+	if timeout <= 0 {
+		timeout = 15 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := e.loadAndSwap(ctx); err != nil {
+		e.logger.Debug("pac reload failed", "err", err)
+		e.mu.Lock()
+		if !e.closed {
+			// Keep old pool; advance lastLoad so we don't hammer the source.
+			e.lastLoad = time.Now()
+		}
+		e.reloading = false
+		e.loadWait.Broadcast()
+		e.mu.Unlock()
+		return
 	}
 	e.mu.Lock()
 	e.reloading = false
@@ -206,9 +242,13 @@ func (e *Evaluator) loadAndSwap(ctx context.Context) error {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.closed {
+		return nil
+	}
+	e.cache.invalidate()
+	p.gen = e.cache.generation()
 	e.pool.Store(p)
 	e.lastLoad = time.Now()
-	e.cache.invalidate()
 	return nil
 }
 
@@ -254,6 +294,10 @@ func (e *Evaluator) readSource(ctx context.Context) ([]byte, error) {
 			return nil, err
 		}
 		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			return nil, fmt.Errorf("pac fetch: http %d", resp.StatusCode)
+		}
 		return io.ReadAll(resp.Body)
 	}
 	path := e.source
