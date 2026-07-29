@@ -120,7 +120,10 @@ func BenchmarkFindProxyDuringReload(b *testing.B) {
 	b.Cleanup(e.Close)
 	_ = e.FindProxyForURL(context.Background(), "http://warm.example/", "warm.example")
 	time.Sleep(30 * time.Millisecond)
-	_ = e.FindProxyForURL(context.Background(), "http://warm.example/", "warm.example") // kick async reload
+	// Kick reload in the background so this works on both sync (main) and async (branch) loaders.
+	go func() {
+		_ = e.FindProxyForURL(context.Background(), "http://warm.example/reload", "warm.example")
+	}()
 	select {
 	case <-block:
 	case <-time.After(2 * time.Second):
