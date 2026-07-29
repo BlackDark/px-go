@@ -37,6 +37,21 @@ func TestResultCacheTTLExpiry(t *testing.T) {
 	}
 }
 
+func TestResultCachePutIfGenRejectsStale(t *testing.T) {
+	c := newResultCache(time.Minute, 16)
+	gen := c.generation()
+	c.invalidate()
+	c.putIfGen("k", "STALE", gen)
+	if _, ok := c.get("k"); ok {
+		t.Fatal("stale putIfGen must not populate cache")
+	}
+	c.putIfGen("k", "FRESH", c.generation())
+	got, ok := c.get("k")
+	if !ok || got != "FRESH" {
+		t.Fatalf("got %q ok=%v", got, ok)
+	}
+}
+
 func TestResultCacheInvalidate(t *testing.T) {
 	c := newResultCache(time.Minute, 16)
 	c.put("k", "DIRECT")

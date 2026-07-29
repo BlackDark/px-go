@@ -41,6 +41,11 @@ type Evaluator struct {
 	reloading bool
 	pool      atomic.Pointer[runtimePool]
 	cache     *resultCache
+
+	// onSlotHeld is an optional test hook invoked while a pool slot is checked out.
+	onSlotHeld func()
+	// onBeforeCheckout is an optional test hook invoked after pool Load, before taking a slot.
+	onBeforeCheckout func(p *runtimePool)
 }
 
 func New(source, encoding string, reloadInterval time.Duration, logger *slog.Logger) *Evaluator {
@@ -73,19 +78,22 @@ func (e *Evaluator) FindProxyForURL(ctx context.Context, rawURL, host string) st
 	if p == nil {
 		return "DIRECT"
 	}
+	gen := e.cache.generation()
+	if e.onBeforeCheckout != nil {
+		e.onBeforeCheckout(p)
+	}
 	slot := <-p.slots
-	defer func() {
-		if e.pool.Load() == p {
-			p.slots <- slot
-		}
-	}()
+	defer func() { p.slots <- slot }()
+	if e.onSlotHeld != nil {
+		e.onSlotHeld()
+	}
 	result, err := slot.callable(goja.Undefined(), slot.runtime.ToValue(rawURL), slot.runtime.ToValue(host))
 	if err != nil {
 		e.logger.Debug("FindProxyForURL failed", "err", err)
 		return "DIRECT"
 	}
 	out := normalizeProxyResult(result.String())
-	e.cache.put(key, out)
+	e.cache.putIfGen(key, out, gen)
 	return out
 }
 
@@ -150,6 +158,13 @@ func (e *Evaluator) ensureLoaded(ctx context.Context) {
 		e.mu.Unlock()
 		if err := e.loadAndSwap(ctx); err != nil {
 			e.logger.Debug("pac reload failed", "err", err)
+			e.mu.Lock()
+			// Keep old pool; advance lastLoad so we don't hammer the source.
+			e.lastLoad = time.Now()
+			e.reloading = false
+			e.loadWait.Broadcast()
+			e.mu.Unlock()
+			return
 		}
 		e.mu.Lock()
 		e.reloading = false
@@ -169,7 +184,15 @@ func (e *Evaluator) ensureLoaded(ctx context.Context) {
 }
 
 func (e *Evaluator) loadAndSwap(ctx context.Context) error {
-	data, err := e.readSource(ctx)
+	// Detach from request cancellation so one client cancel doesn't abort a
+	// shared reload/cold-load that other goroutines may be waiting on.
+	timeout := e.client.Timeout
+	if timeout <= 0 {
+		timeout = 15 * time.Second
+	}
+	loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
+	data, err := e.readSource(loadCtx)
 	if err != nil {
 		return err
 	}

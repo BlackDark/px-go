@@ -62,14 +62,33 @@ func (c *resultCache) get(key string) (string, bool) {
 	return ent.result, true
 }
 
+func (c *resultCache) generation() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.gen
+}
+
 func (c *resultCache) put(key, result string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.putLocked(key, result, c.gen)
+}
+
+func (c *resultCache) putIfGen(key, result string, gen uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if gen != c.gen {
+		return
+	}
+	c.putLocked(key, result, gen)
+}
+
+func (c *resultCache) putLocked(key, result string, gen uint64) {
 	if el, ok := c.items[key]; ok {
 		ent := el.Value.(*cacheEntry)
 		ent.result = result
 		ent.expires = time.Now().Add(c.ttl)
-		ent.gen = c.gen
+		ent.gen = gen
 		c.order.MoveToFront(el)
 		return
 	}
@@ -80,7 +99,7 @@ func (c *resultCache) put(key, result string) {
 		key:     key,
 		result:  result,
 		expires: time.Now().Add(c.ttl),
-		gen:     c.gen,
+		gen:     gen,
 	}
 	c.items[key] = c.order.PushFront(ent)
 }
