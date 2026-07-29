@@ -129,7 +129,9 @@ Write a short report (chat or `bench/results/<timestamp>/REPORT.md`) containing:
 4. Note anomalies (DNS failures to TARGET_HOST, firewall, auth errors)
 5. **Do not** change WSL default proxy or stop `3128` unless a human explicitly asks
 
-## Cutover (human only — not agent default)
+## Related: local-only benches (no Windows)
+
+For machine-local `go test -bench` comparison without WSL/corp proxy, see [`LOCAL.md`](LOCAL.md) (`-tags=bench`).
 
 Only after pass: point clients at 3129 or swap ports in a maintenance window, keeping old binary ready on the other port.
 
