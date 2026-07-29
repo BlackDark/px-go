@@ -1,8 +1,11 @@
 package pac
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -85,5 +88,36 @@ function FindProxyForURL(url, host) {
 	}
 	if e.FindProxyForURL(t.Context(), "ftp://x.com/a", "x.com") != ftpGot {
 		t.Fatal("ftp cache mismatch")
+	}
+}
+
+func TestPACConcurrentPoolEval(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "proxy.pac")
+	if err := os.WriteFile(path, []byte(simplePAC), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e := New(path, "utf-8", time.Minute, nil)
+	e.poolSize = 4
+
+	var wg sync.WaitGroup
+	errCh := make(chan string, 64)
+	for i := 0; i < 64; i++ {
+		wg.Add(1)
+		i := i
+		go func() {
+			defer wg.Done()
+			// unique URLs bypass cache so all hit the pool
+			url := "http://proxy.example.com/" + string(rune('a'+(i%26))) + strconv.Itoa(i)
+			got := e.FindProxyForURL(context.Background(), url, "proxy.example.com")
+			if got != "proxy1.com:8080" {
+				errCh <- got
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for got := range errCh {
+		t.Fatalf("unexpected result %q", got)
 	}
 }

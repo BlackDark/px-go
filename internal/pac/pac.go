@@ -9,11 +9,23 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BlackDark/px-go/internal/config"
 	"github.com/dop251/goja"
 )
+
+const defaultPoolSize = 4
+
+type pacSlot struct {
+	runtime  *goja.Runtime
+	callable goja.Callable
+}
+
+type runtimePool struct {
+	slots chan *pacSlot
+}
 
 type Evaluator struct {
 	source         string
@@ -21,13 +33,13 @@ type Evaluator struct {
 	reloadInterval time.Duration
 	client         *http.Client
 	logger         *slog.Logger
+	poolSize       int
 
 	mu        sync.Mutex
 	loadWait  *sync.Cond
 	lastLoad  time.Time
 	reloading bool
-	runtime   *goja.Runtime
-	callable  goja.Callable
+	pool      atomic.Pointer[runtimePool]
 	cache     *resultCache
 }
 
@@ -44,6 +56,7 @@ func New(source, encoding string, reloadInterval time.Duration, logger *slog.Log
 		reloadInterval: reloadInterval,
 		client:         &http.Client{Timeout: 15 * time.Second},
 		logger:         logger,
+		poolSize:       defaultPoolSize,
 		cache:          newResultCache(defaultCacheTTL, defaultCacheCap),
 	}
 	e.loadWait = sync.NewCond(&e.mu)
@@ -56,12 +69,17 @@ func (e *Evaluator) FindProxyForURL(ctx context.Context, rawURL, host string) st
 	if cached, ok := e.cache.get(key); ok {
 		return cached
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.callable == nil {
+	p := e.pool.Load()
+	if p == nil {
 		return "DIRECT"
 	}
-	result, err := e.callable(goja.Undefined(), e.runtime.ToValue(rawURL), e.runtime.ToValue(host))
+	slot := <-p.slots
+	defer func() {
+		if e.pool.Load() == p {
+			p.slots <- slot
+		}
+	}()
+	result, err := slot.callable(goja.Undefined(), slot.runtime.ToValue(rawURL), slot.runtime.ToValue(host))
 	if err != nil {
 		e.logger.Debug("FindProxyForURL failed", "err", err)
 		return "DIRECT"
@@ -74,8 +92,7 @@ func (e *Evaluator) FindProxyForURL(ctx context.Context, rawURL, host string) st
 func (e *Evaluator) Close() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.runtime = nil
-	e.callable = nil
+	e.pool.Store(nil)
 }
 
 func (e *Evaluator) dnsResolve(host string) string {
@@ -108,19 +125,23 @@ func (e *Evaluator) staleLocked() bool {
 	return e.reloadInterval > 0 && time.Since(e.lastLoad) >= e.reloadInterval
 }
 
+func (e *Evaluator) loadedLocked() bool {
+	return e.pool.Load() != nil
+}
+
 // ensureLoaded fetches/parses PAC outside the eval critical section.
-// Soft reload: one goroutine fetches while others keep using the stale runtime.
+// Soft reload: one goroutine fetches while others keep using the stale pool.
 // Cold start: waiters block on loadWait until the first load finishes.
 func (e *Evaluator) ensureLoaded(ctx context.Context) {
 	e.mu.Lock()
-	for e.callable == nil && e.reloading {
+	for !e.loadedLocked() && e.reloading {
 		e.loadWait.Wait()
 	}
-	if e.callable != nil && !e.staleLocked() {
+	if e.loadedLocked() && !e.staleLocked() {
 		e.mu.Unlock()
 		return
 	}
-	if e.callable != nil {
+	if e.loadedLocked() {
 		if e.reloading {
 			e.mu.Unlock()
 			return
@@ -156,17 +177,32 @@ func (e *Evaluator) loadAndSwap(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	runtime, fn, err := e.compile(text)
+	p, err := e.buildPool(text)
 	if err != nil {
 		return err
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.runtime = runtime
-	e.callable = fn
+	e.pool.Store(p)
 	e.lastLoad = time.Now()
 	e.cache.invalidate()
 	return nil
+}
+
+func (e *Evaluator) buildPool(text string) (*runtimePool, error) {
+	size := e.poolSize
+	if size <= 0 {
+		size = defaultPoolSize
+	}
+	p := &runtimePool{slots: make(chan *pacSlot, size)}
+	for i := 0; i < size; i++ {
+		runtime, fn, err := e.compile(text)
+		if err != nil {
+			return nil, err
+		}
+		p.slots <- &pacSlot{runtime: runtime, callable: fn}
+	}
+	return p, nil
 }
 
 func (e *Evaluator) compile(text string) (*goja.Runtime, goja.Callable, error) {
