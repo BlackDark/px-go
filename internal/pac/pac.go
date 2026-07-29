@@ -22,10 +22,12 @@ type Evaluator struct {
 	client         *http.Client
 	logger         *slog.Logger
 
-	mu       sync.Mutex
-	lastLoad time.Time
-	runtime  *goja.Runtime
-	callable goja.Callable
+	mu        sync.Mutex
+	loadWait  *sync.Cond
+	lastLoad  time.Time
+	reloading bool
+	runtime   *goja.Runtime
+	callable  goja.Callable
 }
 
 func New(source, encoding string, reloadInterval time.Duration, logger *slog.Logger) *Evaluator {
@@ -35,22 +37,21 @@ func New(source, encoding string, reloadInterval time.Duration, logger *slog.Log
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &Evaluator{
+	e := &Evaluator{
 		source:         source,
 		encoding:       encoding,
 		reloadInterval: reloadInterval,
 		client:         &http.Client{Timeout: 15 * time.Second},
 		logger:         logger,
 	}
+	e.loadWait = sync.NewCond(&e.mu)
+	return e
 }
 
 func (e *Evaluator) FindProxyForURL(ctx context.Context, rawURL, host string) string {
+	e.ensureLoaded(ctx)
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if err := e.ensureLoaded(ctx); err != nil {
-		e.logger.Debug("pac load failed", "err", err)
-		return "DIRECT"
-	}
 	if e.callable == nil {
 		return "DIRECT"
 	}
@@ -95,10 +96,50 @@ func (e *Evaluator) myIPAddress() string {
 	return "127.0.0.1"
 }
 
-func (e *Evaluator) ensureLoaded(ctx context.Context) error {
-	if e.callable != nil && (e.reloadInterval <= 0 || time.Since(e.lastLoad) < e.reloadInterval) {
-		return nil
+func (e *Evaluator) staleLocked() bool {
+	return e.reloadInterval > 0 && time.Since(e.lastLoad) >= e.reloadInterval
+}
+
+// ensureLoaded fetches/parses PAC outside the eval critical section.
+// Soft reload: one goroutine fetches while others keep using the stale runtime.
+// Cold start: waiters block on loadWait until the first load finishes.
+func (e *Evaluator) ensureLoaded(ctx context.Context) {
+	e.mu.Lock()
+	for e.callable == nil && e.reloading {
+		e.loadWait.Wait()
 	}
+	if e.callable != nil && !e.staleLocked() {
+		e.mu.Unlock()
+		return
+	}
+	if e.callable != nil {
+		if e.reloading {
+			e.mu.Unlock()
+			return
+		}
+		e.reloading = true
+		e.mu.Unlock()
+		if err := e.loadAndSwap(ctx); err != nil {
+			e.logger.Debug("pac reload failed", "err", err)
+		}
+		e.mu.Lock()
+		e.reloading = false
+		e.loadWait.Broadcast()
+		e.mu.Unlock()
+		return
+	}
+	e.reloading = true
+	e.mu.Unlock()
+	if err := e.loadAndSwap(ctx); err != nil {
+		e.logger.Debug("pac load failed", "err", err)
+	}
+	e.mu.Lock()
+	e.reloading = false
+	e.loadWait.Broadcast()
+	e.mu.Unlock()
+}
+
+func (e *Evaluator) loadAndSwap(ctx context.Context) error {
 	data, err := e.readSource(ctx)
 	if err != nil {
 		return err
@@ -107,21 +148,31 @@ func (e *Evaluator) ensureLoaded(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	runtime, fn, err := e.compile(text)
+	if err != nil {
+		return err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.runtime = runtime
+	e.callable = fn
+	e.lastLoad = time.Now()
+	return nil
+}
+
+func (e *Evaluator) compile(text string) (*goja.Runtime, goja.Callable, error) {
 	runtime := goja.New()
 	_ = runtime.Set("alert", func(goja.FunctionCall) goja.Value { return goja.Undefined() })
 	_ = runtime.Set("dnsResolve", func(host string) string { return e.dnsResolve(host) })
 	_ = runtime.Set("myIpAddress", func() string { return e.myIPAddress() })
 	if _, err := runtime.RunString(PACUtils + "\n" + text); err != nil {
-		return err
+		return nil, nil, err
 	}
 	fn, ok := goja.AssertFunction(runtime.Get("FindProxyForURL"))
 	if !ok {
-		return os.ErrInvalid
+		return nil, nil, os.ErrInvalid
 	}
-	e.runtime = runtime
-	e.callable = fn
-	e.lastLoad = time.Now()
-	return nil
+	return runtime, fn, nil
 }
 
 func (e *Evaluator) readSource(ctx context.Context) ([]byte, error) {

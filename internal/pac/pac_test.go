@@ -3,8 +3,11 @@ package pac
 import (
 	"context"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -48,5 +51,71 @@ func TestPACInvalidFallsBackToDirect(t *testing.T) {
 	e := New(path, "utf-8", time.Minute, slog.Default())
 	if got := e.FindProxyForURL(context.Background(), "http://example.com", "example.com"); got != "DIRECT" {
 		t.Fatalf("unexpected result %q", got)
+	}
+}
+
+func TestPACEvalNotBlockedByReloadFetch(t *testing.T) {
+	var requests atomic.Int32
+	blockSecond := make(chan struct{}, 1)
+	releaseSecond := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := requests.Add(1)
+		if n >= 2 {
+			select {
+			case blockSecond <- struct{}{}:
+			default:
+			}
+			<-releaseSecond
+		}
+		_, _ = w.Write([]byte(simplePAC))
+	}))
+	defer srv.Close()
+
+	e := New(srv.URL, "utf-8", 30*time.Millisecond, slog.Default())
+	t.Cleanup(func() {
+		select {
+		case <-releaseSecond:
+		default:
+			close(releaseSecond)
+		}
+	})
+	if got := e.FindProxyForURL(context.Background(), "http://direct.example.com", "direct.example.com"); got != "DIRECT" {
+		t.Fatalf("initial load: got %q", got)
+	}
+
+	time.Sleep(40 * time.Millisecond)
+
+	reloadDone := make(chan struct{})
+	go func() {
+		_ = e.FindProxyForURL(context.Background(), "http://direct.example.com", "direct.example.com")
+		close(reloadDone)
+	}()
+
+	select {
+	case <-blockSecond:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reload fetch never started")
+	}
+
+	done := make(chan string, 1)
+	go func() {
+		done <- e.FindProxyForURL(context.Background(), "http://proxy.example.com", "proxy.example.com")
+	}()
+
+	select {
+	case got := <-done:
+		if got != "proxy1.com:8080" {
+			t.Fatalf("concurrent eval: got %q", got)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("eval blocked by in-flight reload fetch")
+	}
+
+	close(releaseSecond)
+	select {
+	case <-reloadDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reload never finished")
 	}
 }
