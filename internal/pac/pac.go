@@ -28,6 +28,7 @@ type Evaluator struct {
 	reloading bool
 	runtime   *goja.Runtime
 	callable  goja.Callable
+	cache     *resultCache
 }
 
 func New(source, encoding string, reloadInterval time.Duration, logger *slog.Logger) *Evaluator {
@@ -43,6 +44,7 @@ func New(source, encoding string, reloadInterval time.Duration, logger *slog.Log
 		reloadInterval: reloadInterval,
 		client:         &http.Client{Timeout: 15 * time.Second},
 		logger:         logger,
+		cache:          newResultCache(defaultCacheTTL, defaultCacheCap),
 	}
 	e.loadWait = sync.NewCond(&e.mu)
 	return e
@@ -50,6 +52,10 @@ func New(source, encoding string, reloadInterval time.Duration, logger *slog.Log
 
 func (e *Evaluator) FindProxyForURL(ctx context.Context, rawURL, host string) string {
 	e.ensureLoaded(ctx)
+	key := cacheKey(rawURL, host)
+	if cached, ok := e.cache.get(key); ok {
+		return cached
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.callable == nil {
@@ -60,7 +66,9 @@ func (e *Evaluator) FindProxyForURL(ctx context.Context, rawURL, host string) st
 		e.logger.Debug("FindProxyForURL failed", "err", err)
 		return "DIRECT"
 	}
-	return normalizeProxyResult(result.String())
+	out := normalizeProxyResult(result.String())
+	e.cache.put(key, out)
+	return out
 }
 
 func (e *Evaluator) Close() {
@@ -157,6 +165,7 @@ func (e *Evaluator) loadAndSwap(ctx context.Context) error {
 	e.runtime = runtime
 	e.callable = fn
 	e.lastLoad = time.Now()
+	e.cache.invalidate()
 	return nil
 }
 
