@@ -31,6 +31,7 @@ type Server struct {
 	allow           *network.Matcher
 	noproxy         *network.Matcher
 	pac             *pac.Evaluator
+	pacMu           sync.Mutex
 	kerberos        *kerberos.Manager
 	upstream        auth.Factory
 	directTransport *http.Transport
@@ -156,8 +157,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		if s.kerberos != nil {
 			_ = s.kerberos.Close()
 		}
-		if s.pac != nil {
-			s.pac.Close()
+		if p := s.getPAC(); p != nil {
+			p.Close()
 		}
 	})
 	return shutdownErr
