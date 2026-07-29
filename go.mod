@@ -29,5 +29,5 @@ require (
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 )

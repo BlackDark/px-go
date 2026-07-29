@@ -19,12 +19,12 @@ type cacheEntry struct {
 }
 
 type resultCache struct {
-	mu      sync.Mutex
-	ttl     time.Duration
-	cap     int
-	gen     uint64
-	items   map[string]*list.Element
-	order   *list.List // front = most recently used
+	mu    sync.Mutex
+	ttl   time.Duration
+	cap   int
+	gen   uint64
+	items map[string]*list.Element
+	order *list.List // front = most recently used
 }
 
 func newResultCache(ttl time.Duration, cap int) *resultCache {
