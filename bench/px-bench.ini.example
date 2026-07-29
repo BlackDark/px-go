@@ -1,0 +1,24 @@
+# px-bench.ini example (Windows host)
+
+Copy your production `px.ini` to `px-bench.ini` and change only what is needed for side-by-side A/B.
+
+```ini
+[proxy]
+; Keep the same pac= / server= / auth / noproxy as production
+port = 3129
+; Ensure WSL can connect (match how 3128 is exposed)
+listen = 0.0.0.0
+
+[settings]
+; Same threads/idle/socktimeout as production
+log = 1
+log_file = px-bench.log
+; Optional: shorter interval when exercising HTTP PAC soft-reload
+; proxyreload = 5
+```
+
+Start without touching the live process on 3128:
+
+```text
+px-new.exe --config=px-bench.ini --foreground --verbose
+```
