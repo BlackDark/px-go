@@ -150,8 +150,8 @@ func (s *Server) resolveRoute(ctx context.Context, r *http.Request) (route, erro
 		s.logger.Debug("route: noproxy match", "host", host)
 		return route{Direct: true}, nil
 	}
-	if s.pac != nil {
-		result := s.pac.FindProxyForURL(ctx, absoluteURL(r), host)
+	if p := s.getPAC(); p != nil {
+		result := p.FindProxyForURL(ctx, absoluteURL(r), host)
 		parsed := parsePACResult(result)
 		s.logger.Debug("route: PAC result", "host", host, "raw", result, "proxies", parsed)
 		if len(parsed) == 0 {
@@ -166,10 +166,9 @@ func (s *Server) resolveRoute(ctx context.Context, r *http.Request) (route, erro
 	info, err := s.platform.LoadProxyInfo(ctx, absoluteURL(r))
 	if err == nil {
 		s.logger.Debug("route: platform proxy info", "pac", info.PAC, "servers", info.Servers)
-		if info.PAC != "" && s.pac == nil {
-			s.logger.Info("discovered PAC from platform", "pac", info.PAC)
-			s.pac = pac.New(info.PAC, s.cfg.Proxy.PACEncoding, s.cfg.Settings.ProxyReload, s.logger)
-			result := s.pac.FindProxyForURL(ctx, absoluteURL(r), host)
+		if info.PAC != "" {
+			p := s.ensurePlatformPAC(info.PAC)
+			result := p.FindProxyForURL(ctx, absoluteURL(r), host)
 			parsed := parsePACResult(result)
 			s.logger.Debug("route: PAC (from platform) result", "host", host, "raw", result, "proxies", parsed)
 			if len(parsed) == 0 {
@@ -186,6 +185,24 @@ func (s *Server) resolveRoute(ctx context.Context, r *http.Request) (route, erro
 	}
 	s.logger.Debug("route: direct (no upstream)", "host", host)
 	return route{Direct: true}, nil
+}
+
+func (s *Server) getPAC() *pac.Evaluator {
+	s.pacMu.Lock()
+	defer s.pacMu.Unlock()
+	return s.pac
+}
+
+func (s *Server) ensurePlatformPAC(source string) *pac.Evaluator {
+	s.pacMu.Lock()
+	defer s.pacMu.Unlock()
+	// First discovered PAC URL wins for the process lifetime; later platform
+	// updates with a different PAC path are ignored until restart.
+	if s.pac == nil {
+		s.logger.Info("discovered PAC from platform", "pac", source)
+		s.pac = pac.New(source, s.cfg.Proxy.PACEncoding, s.cfg.Settings.ProxyReload, s.logger)
+	}
+	return s.pac
 }
 
 func (s *Server) roundTripDirect(ctx context.Context, r *http.Request, body []byte) (*http.Response, error) {
