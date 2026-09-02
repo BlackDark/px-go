@@ -5,7 +5,7 @@ go 1.27
 require (
 	github.com/Azure/go-ntlmssp v0.1.1
 	github.com/bigkraig/go-ntlm v0.0.0-20160204225210-8856fdbdc17d
-	github.com/dop251/goja v0.0.0-20260806115107-493f22071ef6
+	github.com/dop251/goja v0.0.0-20260901132549-43234fa61381
 	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/joho/godotenv v1.5.1
 	github.com/zalando/go-keyring v0.2.8
