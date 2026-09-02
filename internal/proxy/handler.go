@@ -226,7 +226,7 @@ func (s *Server) roundTripProxy(ctx context.Context, r *http.Request, body []byt
 		}
 	}()
 	var authHeader string
-	for attempt := 0; attempt < 4; attempt++ {
+	for attempt := range 4 {
 		req := cloneForWrite(r, body, authHeader, strings.EqualFold(s.cfg.Proxy.Auth, "NONE"))
 		if s.cfg.Proxy.UserAgent != "" {
 			req.Header.Set("User-Agent", s.cfg.Proxy.UserAgent)
@@ -290,7 +290,7 @@ func (s *Server) connectViaProxy(ctx context.Context, r *http.Request, proxyAddr
 		}
 	}()
 	var authHeader string
-	for attempt := 0; attempt < 4; attempt++ {
+	for attempt := range 4 {
 		if err := writeConnectRequest(conn, r, authHeader, strings.EqualFold(s.cfg.Proxy.Auth, "NONE")); err != nil {
 			_ = conn.Close()
 			return nil, err

@@ -44,10 +44,8 @@ func TestPlatformPACInitRace(t *testing.T) {
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, 32)
-	for i := 0; i < 32; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 32 {
+		wg.Go(func() {
 			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com/", nil)
 			if err != nil {
 				errCh <- err
@@ -56,7 +54,7 @@ func TestPlatformPACInitRace(t *testing.T) {
 			if _, err := srv.resolveRoute(context.Background(), req); err != nil {
 				errCh <- err
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)

@@ -117,7 +117,7 @@ func TestPACConcurrentPoolEval(t *testing.T) {
 
 	var wg sync.WaitGroup
 	errCh := make(chan string, 64)
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		wg.Add(1)
 		i := i
 		go func() {

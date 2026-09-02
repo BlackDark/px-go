@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -115,12 +116,7 @@ func (m *Matcher) MatchHost(ctx context.Context, host string, resolver Resolver)
 	if err != nil {
 		return false
 	}
-	for _, ip := range ips {
-		if m.MatchIP(ip) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(ips, m.MatchIP)
 }
 
 func DefaultResolver(ctx context.Context, host string) ([]netip.Addr, error) {
