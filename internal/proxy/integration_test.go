@@ -64,7 +64,7 @@ func newTestEnv(t *testing.T, port int, cfgFn func(*config.Config)) *testEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	go func() { _ = srv.Start(ctx) }()
 	waitForPort(t, port)
 
@@ -129,8 +129,7 @@ func TestIntegration_DirectHTTPS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() { _ = srv.Start(ctx) }()
 	waitForPort(t, 19101)
 
@@ -258,8 +257,7 @@ func TestIntegration_UpstreamProxy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	upstreamCtx, upstreamCancel := context.WithCancel(context.Background())
-	defer upstreamCancel()
+	upstreamCtx := t.Context()
 	go func() { _ = upstreamSrv.Start(upstreamCtx) }()
 	waitForPort(t, 19110)
 
@@ -275,8 +273,7 @@ func TestIntegration_UpstreamProxy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() { _ = srv.Start(ctx) }()
 	waitForPort(t, 19111)
 
@@ -318,8 +315,7 @@ func TestIntegration_UpstreamProxyCONNECT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	upstreamCtx, upstreamCancel := context.WithCancel(context.Background())
-	defer upstreamCancel()
+	upstreamCtx := t.Context()
 	go func() { _ = upstreamSrv.Start(upstreamCtx) }()
 	waitForPort(t, 19112)
 
@@ -335,8 +331,7 @@ func TestIntegration_UpstreamProxyCONNECT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() { _ = srv.Start(ctx) }()
 	waitForPort(t, 19113)
 
@@ -384,8 +379,7 @@ func TestIntegration_UpstreamBasicAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	upstreamCtx, upstreamCancel := context.WithCancel(context.Background())
-	defer upstreamCancel()
+	upstreamCtx := t.Context()
 	go func() { _ = upstreamSrv.Start(upstreamCtx) }()
 	waitForPort(t, 19114)
 
@@ -404,8 +398,7 @@ func TestIntegration_UpstreamBasicAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() { _ = srv.Start(ctx) }()
 	waitForPort(t, 19115)
 
@@ -447,8 +440,7 @@ func TestIntegration_LargeBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() { _ = srv.Start(ctx) }()
 	waitForPort(t, 19106)
 

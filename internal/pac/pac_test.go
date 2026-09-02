@@ -173,7 +173,7 @@ func TestPACNoDeadlockOnPoolSwapWhileSaturated(t *testing.T) {
 		t.Fatal("waiter never reached checkout")
 	}
 	// Let waiter enter <-p.slots before we swap the active pool.
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		runtime.Gosched()
 	}
 

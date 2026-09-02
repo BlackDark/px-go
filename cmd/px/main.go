@@ -149,7 +149,7 @@ func runTestMode(cfg config.Config, server *proxy.Server) error {
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.Start(ctx) }()
-	for i := 0; i < 25; i++ {
+	for range 25 {
 		if err := config.HealthCheck(500*time.Millisecond, cfg.Proxy.Port); err == nil {
 			break
 		}

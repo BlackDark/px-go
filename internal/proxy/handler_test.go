@@ -1,7 +1,6 @@
 package proxy_test
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -31,10 +30,9 @@ func TestDirectHTTPProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() { _ = srv.Start(ctx) }()
-	time.Sleep(500 * time.Millisecond)
+	waitForPort(t, 18399)
 
 	proxyURL, _ := url.Parse("http://127.0.0.1:18399")
 	client := &http.Client{
