@@ -5,6 +5,7 @@ package auth
 import (
 	"fmt"
 	"net"
+	"runtime"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -59,6 +60,23 @@ type sspiClient struct {
 	targetName *uint16
 	started    bool
 }
+
+// The SSPI structs above are hand-laid-out against secur32.dll; a field-order or
+// width drift is silent memory corruption. Each pair below fails to compile unless
+// the two sizes are exactly equal.
+var (
+	_ [unsafe.Sizeof(secHandle{}) - 2*unsafe.Sizeof(uintptr(0))]struct{}
+	_ [2*unsafe.Sizeof(uintptr(0)) - unsafe.Sizeof(secHandle{})]struct{}
+
+	_ [unsafe.Sizeof(secBuffer{}) - (8 + unsafe.Sizeof(uintptr(0)))]struct{}
+	_ [(8 + unsafe.Sizeof(uintptr(0))) - unsafe.Sizeof(secBuffer{})]struct{}
+
+	_ [unsafe.Sizeof(secBufferDesc{}) - (8 + unsafe.Sizeof(uintptr(0)))]struct{}
+	_ [(8 + unsafe.Sizeof(uintptr(0))) - unsafe.Sizeof(secBufferDesc{})]struct{}
+
+	_ [unsafe.Sizeof(secWinntAuthIdentity{}) - 6*unsafe.Sizeof(uintptr(0))]struct{}
+	_ [6*unsafe.Sizeof(uintptr(0)) - unsafe.Sizeof(secWinntAuthIdentity{})]struct{}
+)
 
 var (
 	secur32                       = windows.NewLazySystemDLL("secur32.dll")
@@ -164,12 +182,17 @@ func (c *sspiClient) Next(in []byte) ([]byte, bool, error) {
 		uintptr(unsafe.Pointer(&attrs)),
 		uintptr(unsafe.Pointer(&expiry)),
 	)
-	c.ctx = newCtx
-	c.started = true
+	// SecBuffers point into Go memory; keep the backing slices reachable across the call.
+	runtime.KeepAlive(outBuf)
+	runtime.KeepAlive(in)
 	switch uint32(ret) {
 	case secEOk:
+		c.ctx = newCtx
+		c.started = true
 		return outBuf[:outSec.cbBuffer], true, nil
 	case secIContinueNeeded:
+		c.ctx = newCtx
+		c.started = true
 		return outBuf[:outSec.cbBuffer], false, nil
 	default:
 		return nil, false, fmt.Errorf("InitializeSecurityContextW failed: 0x%x", ret)
