@@ -130,13 +130,9 @@ func Load(args []string) (Config, error) {
 		return cfg, err
 	}
 	// Precedence for the recorded config path: CLI beats PX_CONFIG, which beats
-	// auto-discovery. applyEnv may already have set the env value.
-	switch {
-	case cliPath != "":
-		cfg.Special.ConfigPath = configPath
-	case cfg.Special.ConfigPath == "":
-		cfg.Special.ConfigPath = configPath
-	}
+	// auto-discovery. resolveConfigPath already folds PX_CONFIG into configPath,
+	// so recorded and loaded always agree.
+	cfg.Special.ConfigPath = configPath
 	cfg.normalize()
 	return cfg, cfg.validate()
 }
@@ -222,6 +218,14 @@ func resolveConfigPath(explicit string) (string, error) {
 			return explicit, fmt.Errorf("config %s: %w", explicit, err)
 		}
 		return explicit, nil
+	}
+	// PX_CONFIG selects the file when --config is absent. Best-effort: a path that
+	// does not exist falls through to discovery rather than failing startup,
+	// which is how this variable behaved while it was parsed but ignored.
+	if env := strings.TrimSpace(os.Getenv("PX_CONFIG")); env != "" {
+		if _, err := os.Stat(env); err == nil {
+			return env, nil
+		}
 	}
 	candidates := []string{
 		filepath.Join(mustGetwd(), "px.ini"),
