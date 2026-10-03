@@ -146,3 +146,18 @@ log_file = /var/log/px-go/test.log
 		t.Fatalf("resolveLogPath: got %q", got)
 	}
 }
+
+// "proxy" and "server" both assign Proxy.Server. Map iteration order must not
+// decide which wins, otherwise the same argv routes to different upstreams.
+func TestApplyValuesProxyServerPrecedenceIsDeterministic(t *testing.T) {
+	const want = "B:2"
+	for range 100 {
+		cfg := Default()
+		if err := applyValues(&cfg, map[string]string{"proxy": "A:1", "server": want}); err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.Proxy.Server) != 1 || cfg.Proxy.Server[0] != want {
+			t.Fatalf("Proxy.Server = %v, want [%s]", cfg.Proxy.Server, want)
+		}
+	}
+}
