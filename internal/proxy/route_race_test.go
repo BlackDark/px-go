@@ -22,8 +22,6 @@ func (s stubPlatform) LoadProxyInfo(context.Context, string) (platform.ProxyInfo
 }
 func (stubPlatform) Install(string) error { return nil }
 func (stubPlatform) Uninstall() error     { return nil }
-func (stubPlatform) AttachConsole() error { return nil }
-func (stubPlatform) DetachConsole() error { return nil }
 
 func TestPlatformPACInitRace(t *testing.T) {
 	dir := t.TempDir()
