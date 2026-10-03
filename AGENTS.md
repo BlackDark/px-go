@@ -97,7 +97,7 @@ Run: `go test -v ./internal/proxy/ -run TestIntegration`
 golangci-lint run ./...
 ```
 
-CI uses `golangci-lint-action@v9` with golangci-lint v2.12.2. The `.golangci.yml` uses v2 config format.
+CI uses `golangci-lint-action@v9` with golangci-lint v2.13.2. The `.golangci.yml` uses v2 config format.
 
 ## CI/CD
 
