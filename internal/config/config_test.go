@@ -164,21 +164,17 @@ func TestApplyValuesProxyServerPrecedenceIsDeterministic(t *testing.T) {
 
 // PX_CONFIG selects the config file when --config is absent, and the path
 // recorded on Special.ConfigPath must be the file that was actually loaded.
+//
+// t.Chdir (not os.Chdir) so the working directory is restored before
+// t.TempDir's RemoveAll runs: cleanups are LIFO, and Windows refuses to delete
+// the directory the process is currently sitting in.
 func TestLoadHonorsPxConfig(t *testing.T) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-
 	discoverDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(discoverDir, "px.ini"),
 		[]byte("[proxy]\nport = 1111\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chdir(discoverDir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(discoverDir)
 
 	site := filepath.Join(t.TempDir(), "site.ini")
 	if err := os.WriteFile(site, []byte("[proxy]\nport = 2222\n"), 0o644); err != nil {
@@ -201,20 +197,12 @@ func TestLoadHonorsPxConfig(t *testing.T) {
 // A PX_CONFIG that does not exist must not break startup; it falls back to
 // discovery, which is how the variable behaved while it was ignored.
 func TestLoadIgnoresMissingPxConfig(t *testing.T) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-
 	discoverDir := t.TempDir()
 	want := filepath.Join(discoverDir, "px.ini")
 	if err := os.WriteFile(want, []byte("[proxy]\nport = 3333\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chdir(discoverDir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(discoverDir)
 	t.Setenv("PX_CONFIG", filepath.Join(discoverDir, "nope.ini"))
 
 	cfg, err := Load(nil)
