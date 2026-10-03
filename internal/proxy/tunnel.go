@@ -10,7 +10,9 @@ import (
 const relayBufferSize = 32 * 1024
 
 // closeWrite half-closes the write side so the peer can still deliver the
-// response after we stop reading. Plain Close would drop it.
+// response after we stop reading. Plain Close would drop it. Silently no-ops
+// for conns that are not *net.TCPConn; both callers pass real TCP conns and the
+// idle deadline still bounds the wait.
 func closeWrite(c net.Conn) {
 	if tc, ok := c.(*net.TCPConn); ok {
 		_ = tc.CloseWrite()
@@ -28,6 +30,9 @@ func Relay(left, right net.Conn, idle time.Duration) {
 			if n > 0 {
 				_ = dst.SetWriteDeadline(time.Now().Add(idle))
 				if _, werr := dst.Write(buf[:n]); werr != nil {
+					// Closing src unblocks the peer pump's write, which would
+					// otherwise linger until its own idle deadline fires.
+					_ = src.Close()
 					break
 				}
 			}
