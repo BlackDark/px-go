@@ -6,6 +6,13 @@
   schedule: ["before 4am on monday"],
   updateNotScheduled: false,
 
+  // `schedule` + `updateNotScheduled: false` also gates Renovate's own automerge attempt:
+  // it returns `update-not-scheduled` before reaching the automerge code, so a PR that turns
+  // green after the Monday window is only merged on the next run a week later. GitHub-native
+  // auto-merge (platformAutomerge, on by default) is what actually lands these PRs in between,
+  // and it needs "Allow auto-merge" enabled in the repository settings.
+  platformAutomerge: true,
+
   // Keep majors separate
   separateMajorMinor: true,
   separateMultipleMajor: true,
@@ -29,6 +36,8 @@
       matchUpdateTypes: ["minor"],
       groupName: "all minor updates",
       groupSlug: "all-minor-updates",
+      automerge: true,
+      automergeType: "pr",
     },
   ],
 }
