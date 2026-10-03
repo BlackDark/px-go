@@ -1,0 +1,17 @@
+[package]
+name = "rustproxy"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "rustproxy"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros", "time"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

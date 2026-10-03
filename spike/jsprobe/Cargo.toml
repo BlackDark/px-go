@@ -1,0 +1,11 @@
+[package]
+name = "jsprobe"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "jsprobe"
+path = "src/main.rs"
+
+[dependencies]
+rquickjs = { version = "0.9", features = ["macro"] }  # macro only: the optional "bindgen" feature requires libclang

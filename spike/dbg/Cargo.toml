@@ -1,0 +1,11 @@
+[package]
+name="dbg"
+version="0.1.0"
+edition="2021"
+
+[[bin]]
+name="dbg"
+path="src/main.rs"
+
+[dependencies]
+rquickjs = { version = "0.9", features = ["macro"] }

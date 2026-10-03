@@ -1,0 +1,5 @@
+ctx1 ok
+step: set dnsResolve ok
+step: prelude ok
+step: pac ok
+ctx2 ok: PROXY default.example.com:8080

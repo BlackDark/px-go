@@ -1,0 +1,11 @@
+[package]
+name = "nodep"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "nodep"
+path = "src/main.rs"
+
+# Intentionally zero dependencies: pure-Rust cross-compile control case.
+[dependencies]

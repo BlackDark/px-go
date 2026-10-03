@@ -1,0 +1,9 @@
+prelude eval: 255.08µs   pac eval: 9.801µs
+http://app.example/path               | app.example             | default path                  | PROXY default.example.com:8080
+ftp://files.example.com/x             | files.example.com       | shExpMatch(ftp://*)           | DIRECT
+http://svc.example.com/special/thing  | svc.example.com         | shExpMatch(*/special/*)       | PROXY special.example.com:8080
+http://host.direct.example/           | host.direct.example     | dnsDomainIs(.direct.example)  | DIRECT
+http://10.1.2.3/thing                 | 10.1.2.3                | isInNet(10.0.0.0/8)           | PROXY internal.example.com:3128
+http://11.1.2.3/thing                 | 11.1.2.3                | isInNet negative -> default   | PROXY default.example.com:8080
+per-call: 13.72 us (n=20000)
+dnsResolve callback invocations: 20001

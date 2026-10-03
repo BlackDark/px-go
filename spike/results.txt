@@ -1,0 +1,10 @@
+N=100000 C=64 REPS=3
+--- rep 1 ---
+rust|ok=100000 fail=0 elapsed_ms=4995.8 rps=20016.9 client_cpu_ms=1330.0|proxy_cpu_ms=8130|idle_rss_kb=16296|loaded_rss_kb=24196
+go|ok=100000 fail=0 elapsed_ms=5083.4 rps=19671.8 client_cpu_ms=1350.0|proxy_cpu_ms=8160|idle_rss_kb=16232|loaded_rss_kb=24452
+--- rep 2 ---
+rust|ok=100000 fail=0 elapsed_ms=5349.7 rps=18692.7 client_cpu_ms=1400.0|proxy_cpu_ms=8460|idle_rss_kb=16204|loaded_rss_kb=23896
+go|ok=100000 fail=0 elapsed_ms=5026.1 rps=19896.0 client_cpu_ms=1330.0|proxy_cpu_ms=8090|idle_rss_kb=16276|loaded_rss_kb=24544
+--- rep 3 ---
+rust|ok=100000 fail=0 elapsed_ms=5500.9 rps=18178.9 client_cpu_ms=1440.0|proxy_cpu_ms=8820|idle_rss_kb=16200|loaded_rss_kb=23788
+go|ok=100000 fail=0 elapsed_ms=5157.5 rps=19389.1 client_cpu_ms=1310.0|proxy_cpu_ms=7910|idle_rss_kb=16228|loaded_rss_kb=24072
