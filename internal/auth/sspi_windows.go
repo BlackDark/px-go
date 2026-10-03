@@ -61,6 +61,13 @@ type sspiClient struct {
 	started    bool
 }
 
+// secWinntAuthIdentity is 3 pointers followed by 4 uint32s. Its total size is
+// padding-dependent (48 bytes on 64-bit, 28 on 32-bit), so the assertions pin
+// the offset of the final field instead: that still fails to compile if a field
+// is added, removed or reordered, on either architecture.
+const winntAuthIdentityTail = unsafe.Offsetof(secWinntAuthIdentity{}.flags) +
+	unsafe.Sizeof(uint32(0))
+
 // The SSPI structs above are hand-laid-out against secur32.dll; a field-order or
 // width drift is silent memory corruption. Each pair below fails to compile unless
 // the two sizes are exactly equal.
@@ -74,8 +81,8 @@ var (
 	_ [unsafe.Sizeof(secBufferDesc{}) - (8 + unsafe.Sizeof(uintptr(0)))]struct{}
 	_ [(8 + unsafe.Sizeof(uintptr(0))) - unsafe.Sizeof(secBufferDesc{})]struct{}
 
-	_ [unsafe.Sizeof(secWinntAuthIdentity{}) - 6*unsafe.Sizeof(uintptr(0))]struct{}
-	_ [6*unsafe.Sizeof(uintptr(0)) - unsafe.Sizeof(secWinntAuthIdentity{})]struct{}
+	_ [winntAuthIdentityTail - unsafe.Sizeof(secWinntAuthIdentity{})]struct{}
+	_ [unsafe.Sizeof(secWinntAuthIdentity{}) - winntAuthIdentityTail]struct{}
 )
 
 var (

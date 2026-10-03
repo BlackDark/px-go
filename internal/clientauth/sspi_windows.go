@@ -61,7 +61,7 @@ var (
 	_ [(8 + unsafe.Sizeof(uintptr(0))) - unsafe.Sizeof(secBuffer{})]struct{}
 
 	_ [unsafe.Sizeof(secBufferDesc{}) - (8 + unsafe.Sizeof(uintptr(0)))]struct{}
-	_ [(8 + unsafe.Sizeof(uintptr(0))) - unsafe.Sizeof(secBuffer{})]struct{}
+	_ [(8 + unsafe.Sizeof(uintptr(0))) - unsafe.Sizeof(secBufferDesc{})]struct{}
 )
 
 var (
