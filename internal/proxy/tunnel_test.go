@@ -15,7 +15,7 @@ func TestRelayPreservesResponseAfterClientHalfClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	served := make(chan struct{})
 	go func() {
@@ -23,7 +23,7 @@ func TestRelayPreservesResponseAfterClientHalfClose(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		// Returns once the peer half-closes; the reply must still get out.
 		_, _ = io.Copy(io.Discard, conn)
 		_, _ = io.WriteString(conn, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi")
@@ -39,7 +39,7 @@ func TestRelayPreservesResponseAfterClientHalfClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	go func() {
 		client, err := ln.Accept()
@@ -53,7 +53,7 @@ func TestRelayPreservesResponseAfterClientHalfClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
