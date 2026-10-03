@@ -30,9 +30,12 @@ func Relay(left, right net.Conn, idle time.Duration) {
 			if n > 0 {
 				_ = dst.SetWriteDeadline(time.Now().Add(idle))
 				if _, werr := dst.Write(buf[:n]); werr != nil {
-					// Closing src unblocks the peer pump's write, which would
-					// otherwise linger until its own idle deadline fires.
-					_ = src.Close()
+					// Deliberately not closing src here: in the client->upstream
+					// direction src is the client, and a failed write there means
+					// upstream is already gone or half-closed while its response may
+					// still be readable. Closing it would discard that response; the
+					// opposite pump is expected to finish delivering it, bounded by
+					// its own idle deadline.
 					break
 				}
 			}
