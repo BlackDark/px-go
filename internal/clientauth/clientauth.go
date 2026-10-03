@@ -187,5 +187,3 @@ func usernameFromBasic(raw string) (string, string, bool) {
 	user, pass, ok := strings.Cut(string(decoded), ":")
 	return user, pass, ok
 }
-
-
