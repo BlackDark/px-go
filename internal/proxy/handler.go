@@ -30,6 +30,11 @@ type connBodyCloser struct {
 	conn net.Conn
 }
 
+// The body must be buffered for replay across upstream auth retries, which
+// caps memory at roughly this much per in-flight request. Anything larger is
+// a bug or an abuse, not a proxy workload.
+const maxRequestBody = 64 << 20
+
 func (c *connBodyCloser) Close() error {
 	err := c.ReadCloser.Close()
 	if c.conn != nil {
@@ -41,9 +46,13 @@ func (c *connBodyCloser) Close() error {
 func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.Settings.SockTimeout*2)
 	defer cancel()
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBody+1))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if int64(len(body)) > maxRequestBody {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 	_ = r.Body.Close()

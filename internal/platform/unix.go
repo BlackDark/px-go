@@ -13,5 +13,3 @@ func (unixPlatform) LoadProxyInfo(context.Context, string) (ProxyInfo, error) {
 }
 func (unixPlatform) Install(string) error { return nil }
 func (unixPlatform) Uninstall() error     { return nil }
-func (unixPlatform) AttachConsole() error { return nil }
-func (unixPlatform) DetachConsole() error { return nil }

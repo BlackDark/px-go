@@ -146,3 +146,70 @@ log_file = /var/log/px-go/test.log
 		t.Fatalf("resolveLogPath: got %q", got)
 	}
 }
+
+// "proxy" and "server" both assign Proxy.Server. Map iteration order must not
+// decide which wins, otherwise the same argv routes to different upstreams.
+func TestApplyValuesProxyServerPrecedenceIsDeterministic(t *testing.T) {
+	const want = "B:2"
+	for range 100 {
+		cfg := Default()
+		if err := applyValues(&cfg, map[string]string{"proxy": "A:1", "server": want}); err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.Proxy.Server) != 1 || cfg.Proxy.Server[0] != want {
+			t.Fatalf("Proxy.Server = %v, want [%s]", cfg.Proxy.Server, want)
+		}
+	}
+}
+
+// PX_CONFIG selects the config file when --config is absent, and the path
+// recorded on Special.ConfigPath must be the file that was actually loaded.
+//
+// t.Chdir (not os.Chdir) so the working directory is restored before
+// t.TempDir's RemoveAll runs: cleanups are LIFO, and Windows refuses to delete
+// the directory the process is currently sitting in.
+func TestLoadHonorsPxConfig(t *testing.T) {
+	discoverDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(discoverDir, "px.ini"),
+		[]byte("[proxy]\nport = 1111\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(discoverDir)
+
+	site := filepath.Join(t.TempDir(), "site.ini")
+	if err := os.WriteFile(site, []byte("[proxy]\nport = 2222\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PX_CONFIG", site)
+
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Proxy.Port != 2222 {
+		t.Fatalf("PX_CONFIG file not loaded: port = %d, want 2222", cfg.Proxy.Port)
+	}
+	if cfg.Special.ConfigPath != site {
+		t.Fatalf("recorded config path = %q, want %q", cfg.Special.ConfigPath, site)
+	}
+}
+
+// A PX_CONFIG that does not exist must not break startup; it falls back to
+// discovery, which is how the variable behaved while it was ignored.
+func TestLoadIgnoresMissingPxConfig(t *testing.T) {
+	discoverDir := t.TempDir()
+	want := filepath.Join(discoverDir, "px.ini")
+	if err := os.WriteFile(want, []byte("[proxy]\nport = 3333\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(discoverDir)
+	t.Setenv("PX_CONFIG", filepath.Join(discoverDir, "nope.ini"))
+
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatalf("missing PX_CONFIG must not fail startup: %v", err)
+	}
+	if cfg.Proxy.Port != 3333 {
+		t.Fatalf("port = %d, want 3333 from discovery", cfg.Proxy.Port)
+	}
+}

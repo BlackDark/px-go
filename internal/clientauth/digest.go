@@ -1,6 +1,7 @@
 package clientauth
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -26,7 +27,7 @@ func (h *Handler) verifyDigest(r *http.Request, state *State, header string) boo
 	}
 	challenge := `realm="PxClient", nonce="` + state.DigestNonce + `", algorithm=MD5, qop="auth"`
 	session := auth.DigestSession{Credentials: auth.Credentials{Username: user, Password: password}}
-	expected, _, err := session.Token(background(), r, challenge)
+	expected, _, err := session.Token(context.Background(), r, challenge)
 	if err != nil {
 		return false
 	}

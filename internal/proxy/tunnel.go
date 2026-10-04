@@ -7,17 +7,35 @@ import (
 	"time"
 )
 
+const relayBufferSize = 32 * 1024
+
+// closeWrite half-closes the write side so the peer can still deliver the
+// response after we stop reading. Plain Close would drop it. Silently no-ops
+// for conns that are not *net.TCPConn; both callers pass real TCP conns and the
+// idle deadline still bounds the wait.
+func closeWrite(c net.Conn) {
+	if tc, ok := c.(*net.TCPConn); ok {
+		_ = tc.CloseWrite()
+	}
+}
+
 func Relay(left, right net.Conn, idle time.Duration) {
 	var wg sync.WaitGroup
 	pump := func(dst, src net.Conn) {
 		defer wg.Done()
-		buf := make([]byte, 32*1024)
+		buf := make([]byte, relayBufferSize)
 		for {
 			_ = src.SetReadDeadline(time.Now().Add(idle))
 			n, err := src.Read(buf)
 			if n > 0 {
 				_ = dst.SetWriteDeadline(time.Now().Add(idle))
 				if _, werr := dst.Write(buf[:n]); werr != nil {
+					// Deliberately not closing src here: in the client->upstream
+					// direction src is the client, and a failed write there means
+					// upstream is already gone or half-closed while its response may
+					// still be readable. Closing it would discard that response; the
+					// opposite pump is expected to finish delivering it, bounded by
+					// its own idle deadline.
 					break
 				}
 			}
@@ -28,11 +46,12 @@ func Relay(left, right net.Conn, idle time.Duration) {
 				break
 			}
 		}
-		_ = dst.Close()
-		_ = src.Close()
+		closeWrite(dst)
 	}
 	wg.Add(2)
 	go pump(left, right)
 	go pump(right, left)
 	wg.Wait()
+	_ = left.Close()
+	_ = right.Close()
 }

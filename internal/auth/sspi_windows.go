@@ -5,6 +5,7 @@ package auth
 import (
 	"fmt"
 	"net"
+	"runtime"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -59,6 +60,30 @@ type sspiClient struct {
 	targetName *uint16
 	started    bool
 }
+
+// secWinntAuthIdentity is 3 pointers followed by 4 uint32s. Its total size is
+// padding-dependent (48 bytes on 64-bit, 28 on 32-bit), so the assertions pin
+// the offset of the final field instead: that still fails to compile if a field
+// is added, removed or reordered, on either architecture.
+const winntAuthIdentityTail = unsafe.Offsetof(secWinntAuthIdentity{}.flags) +
+	unsafe.Sizeof(uint32(0))
+
+// The SSPI structs above are hand-laid-out against secur32.dll; a field-order or
+// width drift is silent memory corruption. Each pair below fails to compile unless
+// the two sizes are exactly equal.
+var (
+	_ [unsafe.Sizeof(secHandle{}) - 2*unsafe.Sizeof(uintptr(0))]struct{}
+	_ [2*unsafe.Sizeof(uintptr(0)) - unsafe.Sizeof(secHandle{})]struct{}
+
+	_ [unsafe.Sizeof(secBuffer{}) - (8 + unsafe.Sizeof(uintptr(0)))]struct{}
+	_ [(8 + unsafe.Sizeof(uintptr(0))) - unsafe.Sizeof(secBuffer{})]struct{}
+
+	_ [unsafe.Sizeof(secBufferDesc{}) - (8 + unsafe.Sizeof(uintptr(0)))]struct{}
+	_ [(8 + unsafe.Sizeof(uintptr(0))) - unsafe.Sizeof(secBufferDesc{})]struct{}
+
+	_ [winntAuthIdentityTail - unsafe.Sizeof(secWinntAuthIdentity{})]struct{}
+	_ [unsafe.Sizeof(secWinntAuthIdentity{}) - winntAuthIdentityTail]struct{}
+)
 
 var (
 	secur32                       = windows.NewLazySystemDLL("secur32.dll")
@@ -164,12 +189,17 @@ func (c *sspiClient) Next(in []byte) ([]byte, bool, error) {
 		uintptr(unsafe.Pointer(&attrs)),
 		uintptr(unsafe.Pointer(&expiry)),
 	)
-	c.ctx = newCtx
-	c.started = true
+	// SecBuffers point into Go memory; keep the backing slices reachable across the call.
+	runtime.KeepAlive(outBuf)
+	runtime.KeepAlive(in)
 	switch uint32(ret) {
 	case secEOk:
+		c.ctx = newCtx
+		c.started = true
 		return outBuf[:outSec.cbBuffer], true, nil
 	case secIContinueNeeded:
+		c.ctx = newCtx
+		c.started = true
 		return outBuf[:outSec.cbBuffer], false, nil
 	default:
 		return nil, false, fmt.Errorf("InitializeSecurityContextW failed: 0x%x", ret)

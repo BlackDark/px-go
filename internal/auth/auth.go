@@ -57,7 +57,7 @@ func (f Factory) NewSession(scheme string, targetHost string) (Session, error) {
 	case "NTLM":
 		return &NTLMSession{Credentials: f.Credentials}, nil
 	case "NEGOTIATE":
-		return newNegotiateSession(f.Credentials, f.Kerberos, targetHost)
+		return newNegotiateSession(f.Credentials, f.Kerberos, f.Logger, targetHost)
 	default:
 		return nil, fmt.Errorf("unsupported auth scheme %s", scheme)
 	}
@@ -123,13 +123,6 @@ func excludeScheme(list []string, exclude string) []string {
 		}
 	}
 	return out
-}
-
-func ProxyAuthorization(req *http.Request, header string) *http.Request {
-	clone := req.Clone(req.Context())
-	clone.Header = clone.Header.Clone()
-	clone.Header.Set("Proxy-Authorization", header)
-	return clone
 }
 
 func RequestURI(req *http.Request) string {
@@ -211,9 +204,15 @@ type NegotiateSession struct {
 	done     bool
 }
 
-func newNegotiateSession(creds Credentials, manager *kerberos.Manager, targetHost string) (Session, error) {
-	if sspi, err := newTokenClient("Negotiate", creds, targetHost); err == nil {
+func newNegotiateSession(creds Credentials, manager *kerberos.Manager, logger *slog.Logger, targetHost string) (Session, error) {
+	sspi, err := newTokenClient("Negotiate", creds, targetHost)
+	if err == nil {
 		return &NegotiateSession{creds: creds, kerberos: manager, sspi: sspi, usedSSPI: true}, nil
+	}
+	// Expected off Windows; on Windows it is the reason SSPI silently fell back to
+	// Kerberos, so keep it visible under --verbose.
+	if logger != nil {
+		logger.Debug("SSPI unavailable, falling back to Kerberos", "error", err)
 	}
 	return &NegotiateSession{creds: creds, kerberos: manager}, nil
 }

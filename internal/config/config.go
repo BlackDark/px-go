@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -111,7 +112,8 @@ func Load(args []string) (Config, error) {
 		return cfg, err
 	}
 
-	configPath, err := resolveConfigPath(valueOrEmpty(cli, "config"))
+	cliPath := valueOrEmpty(cli, "config")
+	configPath, err := resolveConfigPath(cliPath)
 	if err != nil {
 		return cfg, err
 	}
@@ -127,6 +129,9 @@ func Load(args []string) (Config, error) {
 	if err := applyValues(&cfg, cli); err != nil {
 		return cfg, err
 	}
+	// Precedence for the recorded config path: CLI beats PX_CONFIG, which beats
+	// auto-discovery. resolveConfigPath already folds PX_CONFIG into configPath,
+	// so recorded and loaded always agree.
 	cfg.Special.ConfigPath = configPath
 	cfg.normalize()
 	return cfg, cfg.validate()
@@ -214,6 +219,14 @@ func resolveConfigPath(explicit string) (string, error) {
 		}
 		return explicit, nil
 	}
+	// PX_CONFIG selects the file when --config is absent. Best-effort: a path that
+	// does not exist falls through to discovery rather than failing startup,
+	// which is how this variable behaved while it was parsed but ignored.
+	if env := strings.TrimSpace(os.Getenv("PX_CONFIG")); env != "" {
+		if _, err := os.Stat(env); err == nil {
+			return env, nil
+		}
+	}
 	candidates := []string{
 		filepath.Join(mustGetwd(), "px.ini"),
 		filepath.Join(ConfigDir(), "px.ini"),
@@ -297,7 +310,15 @@ func applyEnv(cfg *Config) {
 }
 
 func applyValues(cfg *Config, values map[string]string) error {
-	for rawKey, rawValue := range values {
+	// Sorted iteration: "proxy" and "server" both assign Proxy.Server, so Go's
+	// randomized map order would otherwise make the same argv yield either value.
+	keys := make([]string, 0, len(values))
+	for rawKey := range values {
+		keys = append(keys, rawKey)
+	}
+	slices.Sort(keys)
+	for _, rawKey := range keys {
+		rawValue := values[rawKey]
 		key := strings.ToLower(rawKey)
 		if rawValue == "" && key != "listen" && key != "server" && key != "noproxy" && key != "allow" && key != "useragent" && key != "username" && key != "client_username" && key != "auth" && key != "client_auth" && key != "pac" {
 			continue

@@ -62,22 +62,6 @@ func (windowsPlatform) Uninstall() error {
 	return key.DeleteValue("Px")
 }
 
-func (windowsPlatform) AttachConsole() error {
-	ret, _, err := procAttachConsole.Call(^uintptr(0))
-	if ret == 0 {
-		return err
-	}
-	return nil
-}
-
-func (windowsPlatform) DetachConsole() error {
-	ret, _, err := procFreeConsole.Call()
-	if ret == 0 {
-		return err
-	}
-	return nil
-}
-
 type ieProxyConfig struct {
 	autoDetect    uint32
 	autoConfigURL string
@@ -97,8 +81,6 @@ var (
 	kernel32                                  = windows.NewLazySystemDLL("kernel32.dll")
 	procWinHttpGetIEProxyConfigForCurrentUser = winhttpDLL.NewProc("WinHttpGetIEProxyConfigForCurrentUser")
 	procGlobalFree                            = kernel32.NewProc("GlobalFree")
-	procAttachConsole                         = kernel32.NewProc("AttachConsole")
-	procFreeConsole                           = kernel32.NewProc("FreeConsole")
 )
 
 func winHTTPGetIEProxyConfigForCurrentUser() (ieProxyConfig, error) {

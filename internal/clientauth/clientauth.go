@@ -1,7 +1,6 @@
 package clientauth
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
@@ -187,13 +186,4 @@ func usernameFromBasic(raw string) (string, string, bool) {
 	}
 	user, pass, ok := strings.Cut(string(decoded), ":")
 	return user, pass, ok
-}
-
-func background() context.Context {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	go func() {
-		<-ctx.Done()
-		cancel()
-	}()
-	return ctx
 }
