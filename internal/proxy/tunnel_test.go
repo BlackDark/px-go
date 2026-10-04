@@ -83,12 +83,18 @@ func TestRelayPreservesResponseAfterClientHalfClose(t *testing.T) {
 type stubConn struct {
 	net.Conn
 	in       []byte
+	gate     <-chan struct{}
+	onWrite  func()
 	writeErr error
 	closed   bool
 	written  bytes.Buffer
 }
 
 func (c *stubConn) Read(p []byte) (int, error) {
+	if c.gate != nil {
+		// Hold the response back until the test has observed the failing write.
+		<-c.gate
+	}
 	if len(c.in) == 0 {
 		return 0, io.EOF
 	}
@@ -101,6 +107,9 @@ func (c *stubConn) Write(p []byte) (int, error) {
 	if c.closed {
 		return 0, errors.New("write on closed conn")
 	}
+	if c.onWrite != nil {
+		c.onWrite()
+	}
 	if c.writeErr != nil {
 		return 0, c.writeErr
 	}
@@ -111,18 +120,37 @@ func (c *stubConn) Close() error                     { c.closed = true; return n
 func (c *stubConn) SetReadDeadline(time.Time) error  { return nil }
 func (c *stubConn) SetWriteDeadline(time.Time) error { return nil }
 
+var errUpstreamGone = errors.New("upstream gone")
+
 // Upstream can send its response and then go away, so a failing write on the
 // client->upstream direction must not destroy the response still being read.
+//
+// The response is gated until the failing write has been attempted: otherwise
+// the response pump can win the race, deliver first, and the test would pass
+// even against the bug it is meant to catch.
 func TestRelayKeepsResponseWhenUpstreamWriteFails(t *testing.T) {
+	const want = "HTTP/1.1 200 OK\r\n\r\nbody"
+	attempted := make(chan struct{})
+	release := make(chan struct{})
+
 	client := &stubConn{in: []byte("GET / HTTP/1.1\r\n\r\n")}
 	upstream := &stubConn{
-		in:       []byte("HTTP/1.1 200 OK\r\n\r\nbody"),
-		writeErr: errors.New("upstream gone"),
+		in:       []byte(want),
+		gate:     release,
+		writeErr: errUpstreamGone,
+		onWrite:  func() { close(attempted) },
 	}
 
-	Relay(client, upstream, time.Second)
+	done := make(chan struct{})
+	go func() {
+		Relay(client, upstream, time.Second)
+		close(done)
+	}()
 
-	const want = "HTTP/1.1 200 OK\r\n\r\nbody"
+	<-attempted
+	close(release)
+	<-done
+
 	if got := client.written.String(); got != want {
 		t.Fatalf("response lost when upstream write failed: client got %q, want %q", got, want)
 	}
