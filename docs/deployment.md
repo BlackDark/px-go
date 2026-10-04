@@ -66,7 +66,7 @@ For NTLM, passwords, Kerberos, and client auth, see [Authentication](authenticat
 
 ## Config basics
 
-Precedence: defaults → `px.ini` → `.env` / `PX_*` → CLI flags. See [px.ini](../px.ini) for every option.
+Precedence: defaults → `px.toml` (else `px.ini`) → `.env` / `PX_*` → CLI flags. See [px.toml](../px.toml) or [px.ini](../px.ini).
 
 | Mode | Bind | Who can connect |
 |---|---|---|

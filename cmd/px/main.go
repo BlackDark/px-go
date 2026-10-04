@@ -45,7 +45,7 @@ func run(args []string) error {
 	if cfg.Special.Save {
 		path := cfg.Special.ConfigPath
 		if path == "" {
-			path = filepath.Join(".", "px.ini")
+			path = filepath.Join(".", "px.toml")
 		}
 		return cfg.Save(path)
 	}
