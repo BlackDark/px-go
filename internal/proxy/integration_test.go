@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -357,6 +359,59 @@ func TestIntegration_UpstreamProxyCONNECT(t *testing.T) {
 	}
 }
 
+// startAuthChain starts two chained px instances: an upstream px that demands
+// Basic auth from its clients, and a front px that authenticates against it.
+// Returns the front proxy URL.
+func startAuthChain(t *testing.T, upstreamPort, frontPort int) *url.URL {
+	t.Helper()
+	upstreamCfg := config.Default()
+	upstreamCfg.Proxy.Port = upstreamPort
+	upstreamCfg.Proxy.Listen = []string{"127.0.0.1"}
+	upstreamCfg.Client.Auth = "BASIC"
+	upstreamCfg.Client.Username = "testuser"
+	upstreamCfg.Settings.SockTimeout = 5 * time.Second
+	t.Setenv("PX_CLIENT_PASSWORD", "testpass")
+	upstreamSrv, err := proxy.New(upstreamCfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Start blocks and reports bind failures, so a taken port must fail the test
+	// instead of leaving waitForPort probing a foreign listener.
+	upstreamErr := make(chan error, 1)
+	go func() { upstreamErr <- upstreamSrv.Start(t.Context()) }()
+	waitForPort(t, upstreamPort)
+	failOnBindError(t, upstreamErr, upstreamPort)
+
+	cfg := config.Default()
+	cfg.Proxy.Port = frontPort
+	cfg.Proxy.Listen = []string{"127.0.0.1"}
+	cfg.Proxy.Server = []string{fmt.Sprintf("127.0.0.1:%d", upstreamPort)}
+	cfg.Proxy.Auth = "BASIC"
+	cfg.Proxy.Username = "testuser"
+	cfg.Settings.SockTimeout = 5 * time.Second
+	t.Setenv("PX_PASSWORD", "testpass")
+	srv, err := proxy.New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	frontErr := make(chan error, 1)
+	go func() { frontErr <- srv.Start(t.Context()) }()
+	waitForPort(t, frontPort)
+	failOnBindError(t, frontErr, frontPort)
+
+	proxyURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", frontPort))
+	return proxyURL
+}
+
+func failOnBindError(t *testing.T, startErr <-chan error, port int) {
+	t.Helper()
+	select {
+	case err := <-startErr:
+		t.Fatalf("px failed to start on port %d: %v", port, err)
+	default:
+	}
+}
+
 func TestIntegration_UpstreamBasicAuth(t *testing.T) {
 	// Backend
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -365,44 +420,7 @@ func TestIntegration_UpstreamBasicAuth(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	// Upstream proxy requiring Basic auth
-	upstreamCfg := config.Default()
-	upstreamCfg.Proxy.Port = 19114
-	upstreamCfg.Proxy.Listen = []string{"127.0.0.1"}
-	upstreamCfg.Client.Auth = "BASIC"
-	upstreamCfg.Client.Username = "testuser"
-	upstreamCfg.Settings.SockTimeout = 5 * time.Second
-	upstreamLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	// Set password via env for the upstream
-	t.Setenv("PX_CLIENT_PASSWORD", "testpass")
-	upstreamSrv, err := proxy.New(upstreamCfg, upstreamLogger)
-	if err != nil {
-		t.Fatal(err)
-	}
-	upstreamCtx := t.Context()
-	go func() { _ = upstreamSrv.Start(upstreamCtx) }()
-	waitForPort(t, 19114)
-
-	// Main px configured to auth against upstream with Basic
-	cfg := config.Default()
-	cfg.Proxy.Port = 19115
-	cfg.Proxy.Listen = []string{"127.0.0.1"}
-	cfg.Proxy.Server = []string{"127.0.0.1:19114"}
-	cfg.Proxy.Auth = "BASIC"
-	cfg.Proxy.Username = "testuser"
-	cfg.Settings.SockTimeout = 5 * time.Second
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	// Password via env
-	t.Setenv("PX_PASSWORD", "testpass")
-	srv, err := proxy.New(cfg, logger)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := t.Context()
-	go func() { _ = srv.Start(ctx) }()
-	waitForPort(t, 19115)
-
-	proxyURL, _ := url.Parse("http://127.0.0.1:19115")
+	proxyURL := startAuthChain(t, 19114, 19115)
 	client := &http.Client{
 		Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)},
 		Timeout:   10 * time.Second,
@@ -418,6 +436,185 @@ func TestIntegration_UpstreamBasicAuth(t *testing.T) {
 	}
 	if string(body) != "authed-ok" {
 		t.Fatalf("expected 'authed-ok', got %q", body)
+	}
+}
+
+// Clients that default to Connection: close (BusyBox wget, HTTP/1.0 tools) must
+// still get the real upstream response; the close is hop-by-hop and must not
+// leak into the upstream connection that px authenticates and retries on.
+func TestIntegration_ClientConnectionClose(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "close-ok")
+	}))
+	defer backend.Close()
+	startAuthChain(t, 19116, 19117)
+
+	cases := []struct {
+		name string
+		req  string
+	}{
+		{"keep-alive default", "GET http://%s/ HTTP/1.1\r\nHost: %s\r\n\r\n"},
+		{"connection close", "GET http://%s/ HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n"},
+		{"http/1.0 default close", "GET http://%s/ HTTP/1.0\r\nHost: %s\r\n\r\n"},
+		{"http/1.0 keep-alive", "GET http://%s/ HTTP/1.0\r\nHost: %s\r\nConnection: keep-alive\r\n\r\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			target := strings.TrimPrefix(backend.URL, "http://")
+			conn, err := net.DialTimeout("tcp", "127.0.0.1:19117", 3*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = conn.Close() }()
+			if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := io.WriteString(conn, fmt.Sprintf(tc.req, target, target)); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := http.ReadResponse(bufio.NewReader(conn), nil)
+			if err != nil {
+				t.Fatalf("read response: %v", err)
+			}
+			defer func() { _ = raw.Body.Close() }()
+			if raw.StatusCode != http.StatusOK {
+				t.Fatalf("expected 200 OK, got: %s", raw.Status)
+			}
+			body, err := io.ReadAll(raw.Body)
+			if err != nil {
+				t.Fatalf("read body: %v", err)
+			}
+			if !strings.Contains(string(body), "close-ok") {
+				t.Fatalf("expected upstream body, got: %s", body)
+			}
+		})
+	}
+}
+
+// Direct route has no auth retry to break, so the observable effect of leaking
+// the client's close upstream is a new origin connection per request. Two
+// sequential Connection: close requests must still share one origin connection.
+func TestIntegration_DirectConnectionCloseReusesOriginConn(t *testing.T) {
+	var mu sync.Mutex
+	var origins []string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		origins = append(origins, r.RemoteAddr)
+		mu.Unlock()
+		_, _ = io.WriteString(w, "reuse-ok")
+	}))
+	defer backend.Close()
+	env := newTestEnv(t, 19118, nil)
+	defer env.Close()
+
+	target := strings.TrimPrefix(backend.URL, "http://")
+	for range 2 {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", env.pxPort), 3*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+		_, werr := io.WriteString(conn,
+			fmt.Sprintf("GET http://%s/ HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", target, target))
+		raw, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		if werr != nil {
+			t.Fatal(werr)
+		}
+		if err != nil {
+			t.Fatalf("read response: %v", err)
+		}
+		if raw.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 OK, got: %s", raw.Status)
+		}
+		_ = raw.Body.Close()
+		_ = conn.Close()
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(origins) != 2 {
+		t.Fatalf("expected 2 origin requests, got %d", len(origins))
+	}
+	if origins[0] != origins[1] {
+		t.Fatalf("client close leaked upstream: origin conns %v", origins)
+	}
+}
+
+// An upstream proxy is allowed to close the socket with its 407 challenge.
+// px must redial instead of replaying the authenticated request into a dead
+// connection, which surfaces as 502 unexpected EOF.
+func TestIntegration_UpstreamClosesAfterChallenge(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer func() { _ = c.Close() }()
+				br := bufio.NewReader(c)
+				authorized := false
+				for {
+					line, err := br.ReadString('\n')
+					if err != nil {
+						return
+					}
+					if strings.HasPrefix(strings.ToLower(line), "proxy-authorization:") {
+						authorized = true
+					}
+					if strings.TrimSpace(line) != "" {
+						continue
+					}
+					if authorized {
+						_, _ = io.WriteString(c, "HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\nredial-ok")
+						return
+					}
+					_, _ = io.WriteString(c, "HTTP/1.1 407 Proxy Authentication Required\r\n"+
+						"Proxy-Authenticate: Basic realm=\"CORP\"\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
+					return
+				}
+			}(c)
+		}
+	}()
+
+	cfg := config.Default()
+	cfg.Proxy.Port = 19119
+	cfg.Proxy.Listen = []string{"127.0.0.1"}
+	cfg.Proxy.Server = []string{ln.Addr().String()}
+	cfg.Proxy.Auth = "BASIC"
+	cfg.Proxy.Username = "testuser"
+	cfg.Settings.SockTimeout = 5 * time.Second
+	t.Setenv("PX_PASSWORD", "testpass")
+	srv, err := proxy.New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	startErr := make(chan error, 1)
+	go func() { startErr <- srv.Start(t.Context()) }()
+	waitForPort(t, 19119)
+	failOnBindError(t, startErr, 19119)
+
+	proxyURL, _ := url.Parse("http://127.0.0.1:19119")
+	client := &http.Client{
+		Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)},
+		Timeout:   10 * time.Second,
+	}
+	resp, err := client.Get("http://example.invalid/resource")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %s: %s", resp.Status, body)
+	}
+	if string(body) != "redial-ok" {
+		t.Fatalf("unexpected body %q", body)
 	}
 }
 
