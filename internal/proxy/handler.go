@@ -223,11 +223,18 @@ func (s *Server) roundTripDirect(ctx context.Context, r *http.Request, body []by
 }
 
 func (s *Server) roundTripProxy(ctx context.Context, r *http.Request, body []byte, proxyAddr string) (*http.Response, error) {
-	conn, err := net.DialTimeout("tcp", normalizeProxyAddr(proxyAddr), s.cfg.Settings.SockTimeout)
-	if err != nil {
-		return nil, err
+	var conn net.Conn
+	// An upstream proxy may close the socket with its 407 challenge (its own
+	// Connection: close, an HTTP/1.0-style reply, a one-request-per-connection
+	// policy). Retrying on that socket fails, so each attempt gets a fresh dial.
+	var reader *bufio.Reader
+	closeConn := func() {
+		if conn != nil {
+			_ = conn.Close()
+			conn = nil
+		}
 	}
-	reader := bufio.NewReader(conn)
+	defer closeConn()
 	var session auth.Session
 	defer func() {
 		if session != nil {
@@ -236,17 +243,24 @@ func (s *Server) roundTripProxy(ctx context.Context, r *http.Request, body []byt
 	}()
 	var authHeader string
 	for attempt := range 4 {
+		if conn == nil {
+			var err error
+			if conn, err = net.DialTimeout("tcp", normalizeProxyAddr(proxyAddr), s.cfg.Settings.SockTimeout); err != nil {
+				return nil, err
+			}
+			reader = bufio.NewReader(conn)
+		}
 		req := cloneForWrite(r, body, authHeader, strings.EqualFold(s.cfg.Proxy.Auth, "NONE"))
 		if s.cfg.Proxy.UserAgent != "" {
 			req.Header.Set("User-Agent", s.cfg.Proxy.UserAgent)
 		}
 		if err := req.WriteProxy(conn); err != nil {
-			_ = conn.Close()
+			closeConn()
 			return nil, err
 		}
 		resp, err := http.ReadResponse(reader, req)
 		if err != nil {
-			_ = conn.Close()
+			closeConn()
 			return nil, err
 		}
 		s.logger.Debug("upstream HTTP proxy response", "status", resp.StatusCode, "attempt", attempt, "proxy", proxyAddr)
@@ -264,25 +278,29 @@ func (s *Server) roundTripProxy(ctx context.Context, r *http.Request, body []byt
 			s.logger.Debug("upstream HTTP auth", "scheme", scheme, "proxy", proxyAddr, "target", normalizeProxyAddr(proxyAddr))
 			session, err = s.upstream.NewSession(scheme, proxyAddr)
 			if err != nil {
-				_ = conn.Close()
+				closeConn()
 				return nil, err
 			}
 			authHeader, _, err = session.Token(ctx, r, challenge)
 			if err != nil {
-				_ = conn.Close()
+				closeConn()
 				return nil, err
 			}
 		} else {
 			authHeader, _, err = session.Token(ctx, r, challengeForScheme(challenges, session.Scheme()))
 			if err != nil {
-				_ = conn.Close()
+				closeConn()
 				return nil, err
 			}
 		}
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
+		if resp.Close {
+			s.logger.Debug("upstream proxy closed connection after challenge", "proxy", proxyAddr)
+			closeConn()
+		}
 	}
-	_ = conn.Close()
+	closeConn()
 	return nil, errors.New("proxy authentication failed")
 }
 
@@ -411,6 +429,9 @@ func normalizeProxyAddr(raw string) string {
 func cloneForTransport(r *http.Request, body []byte) *http.Request {
 	clone := r.Clone(r.Context())
 	clone.RequestURI = ""
+	// Close is a hop-by-hop signal: it describes the client-facing connection,
+	// not the upstream one px manages itself.
+	clone.Close = false
 	clone.Body = io.NopCloser(bytes.NewReader(body))
 	clone.ContentLength = int64(len(body))
 	clone.Header = clone.Header.Clone()
@@ -427,6 +448,9 @@ func cloneForTransport(r *http.Request, body []byte) *http.Request {
 
 func cloneForWrite(r *http.Request, body []byte, authHeader string, preserveClientProxyAuth bool) *http.Request {
 	clone := r.Clone(r.Context())
+	// The client may ask to close after the response, but that must not leak to
+	// the upstream proxy: it would end the connection between auth retries.
+	clone.Close = false
 	clone.Body = io.NopCloser(bytes.NewReader(body))
 	clone.ContentLength = int64(len(body))
 	clone.Header = clone.Header.Clone()
