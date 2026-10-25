@@ -126,3 +126,17 @@ jobs:
           path: |
             px-go-${{ matrix.suffix }}${{ matrix.ext }}
             pxw-go-${{ matrix.suffix }}${{ matrix.ext }}
+
+  zizmor:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/zizmor.yml
+
+  check:
+    if: always()
+    needs: [test, lint, vuln, build-artifacts, zizmor]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
