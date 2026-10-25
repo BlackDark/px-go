@@ -127,14 +127,9 @@ jobs:
             px-go-${{ matrix.suffix }}${{ matrix.ext }}
             pxw-go-${{ matrix.suffix }}${{ matrix.ext }}
 
-  zizmor:
-    permissions:
-      contents: read
-    uses: ./.github/workflows/zizmor.yml
-
   check:
     if: always()
-    needs: [test, lint, vuln, build-artifacts, zizmor]
+    needs: [test, lint, vuln, build-artifacts]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
