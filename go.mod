@@ -1,6 +1,6 @@
 module github.com/BlackDark/px-go
 
-go 1.27
+go 1.27.4
 
 require (
 	github.com/Azure/go-ntlmssp v0.1.1
