@@ -1,74 +1,147 @@
+# CI for this repo, from BlackDark/agent-presets (snippets/ci.yml), adapted for Go.
+# - One workflow, one required check: `check` (the main ruleset requires only it). Do not add a second workflow
+#   with its own gate: required checks match by name across workflows, so a fast gate could pass before CI finished.
+# - Areas: `app` runs `mise run check` (gofmt, vet, golangci-lint, build, race tests, govulncheck); `lint` checks
+#   workflows and Renovate config. PRs run only the areas they touch (docs-only PRs run neither); main and manual
+#   runs run every area.
+# - `test-other-os` runs the tests on macOS and Windows; `build-artifacts` cross-compiles the release binaries.
+# - Draft PRs skip `changes`; `check` passes (drafts can't be merged anyway).
+# - Caches: only pushes to main save; PRs restore only, so PR runs don't fill the 10 GB budget.
+# - `check` needs `if: always()`: a skipped job reports success, so without it a failed area would leave the gate green.
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # renovate: datasource=github-releases depName=rhysd/actionlint
+  ACTIONLINT_VERSION: "1.7.12"
+  # renovate: datasource=npm depName=renovate
+  RENOVATE_VERSION: "44.221.1"
 
 jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  changes:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      app: ${{ steps.areas.outputs.app }}
+      lint: ${{ steps.areas.outputs.lint }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2 # the merge commit and its base parent
+          persist-credentials: false
+      - id: areas
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            { echo "app=true"; echo "lint=true"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only HEAD^1 HEAD)
+          has() { grep -qE "$1" <<< "$changed" && echo true || echo false; }
+          # app: anything that is not docs, CI or Renovate config (mise.toml, go.sum count), or this file itself.
+          app=$(has '^\.github/workflows/ci\.yml$')
+          grep -qvE '^(docs/|\.github/|renovate\.json5?$|LICENSE$)|\.md$' <<< "$changed" && app=true
+          {
+            echo "app=$app"
+            echo "lint=$(has '^(\.github/|renovate\.json5?$)')"
+          } >> "$GITHUB_OUTPUT"
+
+  app:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
-          go-version: "stable"
-          cache: true
-      - name: Go version
-        run: go version
+          cache_save: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+      - id: go-paths
+        run: |
+          {
+            echo "modcache=$(go env GOMODCACHE)"
+            echo "buildcache=$(go env GOCACHE)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-paths.outputs.modcache }}
+            ${{ steps.go-paths.outputs.buildcache }}
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+      - run: mise run check
+      - if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-paths.outputs.modcache }}
+            ${{ steps.go-paths.outputs.buildcache }}
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+
+  test-other-os:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+      - id: go-paths
+        shell: bash
+        run: |
+          {
+            echo "modcache=$(go env GOMODCACHE)"
+            echo "buildcache=$(go env GOCACHE)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-paths.outputs.modcache }}
+            ${{ steps.go-paths.outputs.buildcache }}
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
       - name: Test (race)
         if: runner.os != 'Windows'
         run: go test -race ./...
       - name: Test
         if: runner.os == 'Windows'
         run: go test ./...
-      - name: Build
-        run: go build ./...
-
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: "stable"
-          cache: true
-      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
-        with:
-          version: v2.15.0
-          args: --timeout=5m
-
-  vuln:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: "stable"
-          cache: true
-      - name: Vulnerability scan
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+          path: |
+            ${{ steps.go-paths.outputs.modcache }}
+            ${{ steps.go-paths.outputs.buildcache }}
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
 
   build-artifacts:
-    needs: [test, lint, vuln]
+    needs: [changes, app]
+    if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       matrix:
         include:
@@ -96,10 +169,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
-          go-version: "stable"
-          cache: true
+          cache_save: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+      - id: go-paths
+        shell: bash
+        run: |
+          {
+            echo "modcache=$(go env GOMODCACHE)"
+            echo "buildcache=$(go env GOCACHE)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-paths.outputs.modcache }}
+            ${{ steps.go-paths.outputs.buildcache }}
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
@@ -126,10 +212,60 @@ jobs:
           path: |
             px-go-${{ matrix.suffix }}${{ matrix.ext }}
             pxw-go-${{ matrix.suffix }}${{ matrix.ext }}
+      - if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-paths.outputs.modcache }}
+            ${{ steps.go-paths.outputs.buildcache }}
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+  actionlint:
+    needs: changes
+    if: needs.changes.outputs.lint == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: actionlint
+        run: |
+          bash <(curl -fsSL "https://raw.githubusercontent.com/rhysd/actionlint/v${ACTIONLINT_VERSION}/scripts/download-actionlint.bash") "$ACTIONLINT_VERSION"
+          ./actionlint -color .github/workflows/*.yml
 
+  renovate-config:
+    needs: changes
+    if: needs.changes.outputs.lint == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: renovate-config-validator
+        run: npx --yes --package "renovate@${RENOVATE_VERSION}" -- renovate-config-validator --strict
+
+  zizmor:
+    needs: changes
+    if: needs.changes.outputs.lint == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          inputs: .github/workflows
+          advanced-security: false
+          annotations: true
+
+  # The one required check in the ruleset
   check:
     if: always()
-    needs: [test, lint, vuln, build-artifacts]
+    needs: [changes, app, test-other-os, build-artifacts, actionlint, renovate-config, zizmor]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
