@@ -1,140 +1,89 @@
 # px-go
 
-Go reimplementation of [px](https://github.com/genotrance/px) — a local proxy server that authenticates with upstream corporate (NTLM/Kerberos/Negotiate) proxies using Windows SSPI or explicit credentials.
+Go reimplementation of [px](https://github.com/genotrance/px): a local proxy that authenticates to upstream corporate proxies (NTLM/Kerberos/Negotiate) via Windows SSPI or explicit credentials. Used by developers and AI agents on Windows, macOS and Linux.
 
-## Architecture
+## Verify
 
-```
-cmd/px/main.go          Entry point, CLI flags, signal handling
-internal/
-  config/               INI/env/CLI config loading, logger setup
-  proxy/                HTTP server, CONNECT tunnel, route resolution
-  auth/                 Upstream proxy auth (SSPI, NTLM, Negotiate, Basic, Digest)
-  clientauth/           Client-side auth (authenticating clients to px)
-  pac/                  PAC file evaluation (JavaScript via goja)
-  platform/             OS-specific proxy discovery (WinHTTP on Windows)
-  network/              IP/CIDR/wildcard matching for allow/noproxy rules
-  kerberos/             Kerberos ticket management
-  version/              Build-time version info
-```
+`mise run check` green before every commit: gofmt, `go vet`, golangci-lint, build, race tests, govulncheck. CI runs the same task on Ubuntu, plus `go test` on macOS and Windows.
 
-## Build & Run
+Extra checks:
+- Proxy integration tests after proxy changes: `go test -v ./internal/proxy/ -run TestIntegration`
+- Windows SSPI/Negotiate and PAC discovery cannot run in CI: test manually (see below) after touching `internal/auth`, `internal/platform` or `internal/pac`.
 
-```bash
-# Build (Linux)
-go build ./cmd/px
+Manual Windows test: build `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o px.exe ./cmd/px`, run `px.exe --config=px.ini --verbose`, then `curl http://127.0.0.1:<port>/health`, `curl --proxy http://127.0.0.1:<port> https://httpbin.org/get`, `curl http://127.0.0.1:<port>/PxQuit`. Verify SSPI auth succeeds against the corporate proxy (`--verbose`), `--quiet` suppresses startup logs, `--test` exits cleanly.
 
-# Build (Windows console — shows terminal window, use for interactive debugging / cmd / PowerShell)
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o px.exe ./cmd/px
+CI time is a cost: after touching `.github/workflows/`, deps or the build, check the run's job timings. New slow step: cache it (main saves, PRs restore, key on `go.sum`) or skip it by path.
 
-# Build (Windows headless — no console popup, for Task Scheduler and autostart)
-# --install automatically registers pxw.exe if it exists alongside px.exe
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w -H=windowsgui" -o pxw.exe ./cmd/px
+## Stack
 
-# Run with config
-./px --config=px.ini --foreground
+Follows https://github.com/BlackDark/agent-presets/blob/main/stack/core.md (Go branch: stdlib `net/http`, `mise` for toolchain and tools).
 
-# Run with verbose debug logging
-./px --config=px.ini --verbose
+Deviations:
+- Go toolchain and tools pinned in `.mise.toml`. The `go` directive in `go.mod` equals the mise pin (Renovate bumps both in one PR).
+- `goreleaser` for release binaries; no framework.
+- Frozen dependency: `github.com/bigkraig/go-ntlm` (see `.github/renovate.json5`).
 
-# Quiet mode (suppress startup info)
-./px --config=px.ini --quiet
-```
+## Map
 
-## Testing
+- `cmd/px/`: entry point, CLI flags, signal handling
+- `internal/config/`: INI/env/CLI config, logger setup
+- `internal/proxy/`: HTTP server, CONNECT tunnel, route resolution, integration tests
+- `internal/auth/`: upstream auth (SSPI, NTLM, Negotiate, Basic, Digest)
+- `internal/clientauth/`: client-side auth (authenticating clients to px)
+- `internal/pac/`: PAC evaluation (JavaScript via goja)
+- `internal/platform/`: OS proxy discovery (WinHTTP on Windows)
+- `internal/network/`: IP/CIDR/wildcard matching for allow/noproxy rules
+- `internal/kerberos/`: Kerberos ticket management
+- `internal/version/`: build-time version info
+- `docs/`, `px.ini` (commented full config), `px.toml`
 
-```bash
-# Run all tests
-go test ./...
+Build variants:
+- Windows console: `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o px.exe ./cmd/px`
+- Windows headless (Task Scheduler, autostart): add `-ldflags="-s -w -H=windowsgui"` and name it `pxw.exe`; `--install` registers `pxw.exe` when it sits beside `px.exe`.
 
-# Run with race detector
-go test -race ./...
+## Every change
 
-# Run proxy integration test (handler_test.go)
-go test -v ./internal/proxy/ -run TestDirect
-```
+Same PR, only what the change touches:
+- tests for the changed behaviour
+- docs in `docs/` and `px.ini` for new or changed config keys
+- README when a user-visible feature changes
 
-### Integration Testing (automated)
+## Code style
 
-The `internal/proxy/integration_test.go` file contains full integration tests:
-- Direct HTTP/HTTPS proxying
-- All HTTP methods (GET, POST, PUT, DELETE, PATCH)
-- Noproxy bypass rules
-- Health endpoint
-- Client allow/deny with gateway mode
-- Upstream proxy chaining (HTTP + CONNECT)
-- Upstream proxy with Basic auth
-- Large body transfers (1MB)
-- Graceful shutdown via /PxQuit
+- Data in, data out: pure functions; I/O, time and randomness at the edges.
+- Expected failures are `error` values; panic only for bugs.
+- Auth sessions (SSPI especially) hold native handles: always `Session.Close()` via defer.
+- Zero-cost debug logs: `slog.Debug` calls must not allocate in hot paths.
+- PAC results: strip the `PROXY` prefix; treat `;` as separator.
+- CONNECT tunnels release their concurrency slot after setup (dial + auth); the relay runs without a slot.
+- SSPI target name is `HTTP/<proxy-host>` so Negotiate can use Kerberos.
 
-Run: `go test -v ./internal/proxy/ -run TestIntegration`
+## Stewardship
 
-### Integration Testing (manual, Windows)
+Leave touched areas cleaner than found. Small fixes beside the change go in their own commit in the same PR. Larger problems: report with `file:line`, keep the PR on topic.
 
-1. Build for Windows: `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o px.exe ./cmd/px`
-2. Copy binary + px.ini to Windows host
-3. Run: `px.exe --config=px.ini --verbose`
-4. Test health: `curl http://127.0.0.1:<port>/health`
-5. Test HTTP proxy: `curl --proxy http://127.0.0.1:<port> http://httpbin.org/get`
-6. Test HTTPS proxy: `curl --proxy http://127.0.0.1:<port> https://httpbin.org/get`
-7. Test quit: `curl http://127.0.0.1:<port>/PxQuit`
+## Git
 
-### What to verify
+- Conventional Commits. One topic per PR.
+- Merge: rebase when commits are logically separate, squash otherwise.
+- Force-push: `--force-with-lease` on own branches only.
 
-- Health endpoint returns 200
-- HTTP requests proxy correctly (direct and via upstream)
-- HTTPS CONNECT tunnels work
-- SSPI/Negotiate auth succeeds against corporate proxy (check with `--verbose`)
-- PAC file discovery from platform works
-- Noproxy rules bypass upstream for matching hosts
-- `--quiet` suppresses startup logs
-- `--test` mode exits cleanly after verifying connectivity
+## Boundaries
 
-## Linting
+- `sudo`, system packages, global installs: the user runs them.
+- Running px instances stay up; test on other ports.
+- Language: code, comments, docs and commits in English.
 
-```bash
-# Requires golangci-lint v2.x (see .mise.toml for exact version)
-golangci-lint run ./...
-```
+## Gotchas
 
-CI uses `golangci-lint-action@v9` with golangci-lint v2.13.2. The `.golangci.yml` uses v2 config format.
-
-## CI/CD
-
-- **CI** (`.github/workflows/ci.yml`): Tests on ubuntu/macos/windows + lint + build artifacts (6 platform variants uploaded; Windows artifacts contain both `px.exe` and `pxw.exe`)
-- **Release** (`.github/workflows/release.yml`): goreleaser on tag push, builds multi-platform binaries + Docker images
-- Windows release zips contain both `px.exe` (console) and `pxw.exe` (headless, `-H=windowsgui`); `--install` auto-prefers `pxw.exe` for autostart registry entry
-
-## Key Design Decisions
-
-- **SSPI with SPN**: `InitializeSecurityContextW` receives `HTTP/<proxy-host>` as target name for Negotiate to work with Kerberos
-- **Session.Close()**: Auth sessions (especially SSPI) hold native handles — always closed via defer after use
-- **PAC parsing**: Strips "PROXY " prefixes from PAC results; handles semicolons as separators
-- **Zero-cost debug logs**: `slog.Debug` calls are no-ops when log level > DEBUG — no allocations in hot path
-- **Platform proxy discovery**: On Windows uses WinHTTP to get IE proxy config (PAC URL or server list); logged at INFO on first discovery
-- **Semaphore release before relay**: CONNECT tunnels release their concurrency slot after setup (dial + auth) completes — the bidirectional relay runs without holding a slot, allowing hundreds of concurrent tunnels with threads=128
-- **Windows headless build**: `-H=windowsgui` prevents console popup; requires file-based logging (`log=1` or `log_file`)
-
-## Config
-
-See `px.ini` for full commented config. Key flags:
-- `--server`: Explicit upstream proxy (host:port)
-- `--pac`: PAC file URL or local path
-- `--port`: Local listen port (default 3128)
-- `--auth`: Force auth type (ANY, NTLM, NEGOTIATE, BASIC, DIGEST, NONE)
-- `--noproxy`: Direct connect rules (bypasses upstream)
-- `--verbose`: Debug logging to stdout
-- `--quiet`/`--silent`: Suppress startup info logs
-- `--test`: Start, make a test request, exit
-- `--version`, `--health-check`, `--quit`, `--restart`, `--install`, `--uninstall`
-
-### Recommended settings for AI agent workloads
+- Windows headless build (`-H=windowsgui`) has no console: file logging is required (`log=1` or `log_file`).
+- Config keys for agent workloads (recommended):
 
 ```ini
 [settings]
-threads = 128    # Only gates connection setup, not active tunnels
-idle = 300       # AI tools keep connections idle for minutes between bursts
-socktimeout = 20 # Auth handshake timeout
+threads = 128 # gates connection setup only, not active tunnels
+idle = 300 # AI tools keep connections idle for minutes between bursts
+socktimeout = 20 # auth handshake timeout
 log = 1
-log_file = /var/log/px-go/px-go.log   # explicit path for systemd (overrides binary-dir default)
+log_file = /var/log/px-go/px-go.log # explicit path for systemd (overrides binary-dir default)
 ```
