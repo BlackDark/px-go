@@ -1,21 +1,24 @@
+// Based on BlackDark/agent-presets (templates/renovate.template.json5).
+// The shared rules live in BlackDark/renovate-base. Repo settings: "Allow auto-merge" on, and the `check`
+// status check required on main. The ruleset requires branches to be up to date, so rebase on behind-base-branch
+// or platform automerge stalls on PRs that fell behind main.
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  extends: ["config:best-practices"],
+  extends: [
+    "github>blackdark/renovate-base//default.json5", // path after // is required for .json5
+    "github>blackdark/renovate-base//go.json5",
+    ":pinVersions", // exact versions in package.json; libraries: remove, ranges belong there
+  ],
 
-  // Only create/update Renovate branches once a week
-  schedule: ["before 4am on monday"],
+  // Platform automerge (GitHub native) merges a PR as soon as `check` passes, also between weekly windows.
   updateNotScheduled: false,
-
-  // `schedule` + `updateNotScheduled: false` also gates Renovate's own automerge attempt:
-  // it returns `update-not-scheduled` before reaching the automerge code, so a PR that turns
-  // green after the Monday window is only merged on the next run a week later. GitHub-native
-  // auto-merge (platformAutomerge, on by default) is what actually lands these PRs in between,
-  // and it needs "Allow auto-merge" enabled in the repository settings.
   platformAutomerge: true,
+  rebaseWhen: "behind-base-branch",
 
-  // Keep majors separate
-  separateMajorMinor: true,
   separateMultipleMajor: true,
+
+  // Keep go.sum tidy and rewrite import paths on /vN majors.
+  postUpdateOptions: ["gomodTidy", "gomodUpdateImportPaths"],
 
   packageRules: [
     {
@@ -24,20 +27,10 @@
       enabled: false,
     },
     {
-      description: "Group all patch/pin/digest updates together",
-      matchUpdateTypes: ["!major", "!minor"],
-      groupName: "all patch/pin/digest updates",
-      groupSlug: "all-patch-pin-digest",
-      automerge: true,
-      automergeType: "pr",
-    },
-    {
-      description: "Group all minor updates together",
-      matchUpdateTypes: ["minor"],
-      groupName: "all minor updates",
-      groupSlug: "all-minor-updates",
-      automerge: true,
-      automergeType: "pr",
+      description: "Majors: one PR each, merged by hand",
+      matchUpdateTypes: ["major"],
+      addLabels: ["major"],
+      automerge: false,
     },
   ],
 }
