@@ -10,9 +10,9 @@ require (
 	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/joho/godotenv v1.5.1
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/sys v0.49.0
-	golang.org/x/term v0.47.0
-	gopkg.in/ini.v1 v1.67.3
+	golang.org/x/sys v0.50.0
+	golang.org/x/term v0.48.0
+	gopkg.in/ini.v1 v1.68.0
 )
 
 require (
