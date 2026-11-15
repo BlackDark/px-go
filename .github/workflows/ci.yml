@@ -1,12 +1,17 @@
 # CI for this repo, from BlackDark/agent-presets (snippets/ci.yml), adapted for Go.
 # - One workflow, one required check: `check` (the main ruleset requires only it). Do not add a second workflow
 #   with its own gate: required checks match by name across workflows, so a fast gate could pass before CI finished.
-# - Areas: `app` runs `mise run check` (gofmt, vet, golangci-lint, build, race tests, govulncheck); `lint` checks
+# - Areas: `app` runs `mise run check` (gofmt, tidy, vet, golangci-lint, build, race tests, govulncheck); `lint` checks
 #   workflows and Renovate config. PRs run only the areas they touch (docs-only PRs run neither); main and manual
 #   runs run every area.
 # - `test-other-os` runs the tests on macOS and Windows; `build-artifacts` cross-compiles the release binaries.
+# - `workflow_call` lets release.yml run this gate. Pass `ref` so the run checks that tag.
+#   A non-empty `ref` runs every area, because the PR diff is then the wrong tree.
+#   Later jobs check out the commit `changes` resolved, so a moving branch cannot split the run.
+#   No tag trigger: a GITHUB_TOKEN tag starts no workflows, and a tag trigger here would run CI twice.
 # - Draft PRs skip `changes`; `check` passes (drafts can't be merged anyway).
-# - Caches: only pushes to main save; PRs restore only, so PR runs don't fill the 10 GB budget.
+# - Caches save only when this file is the workflow that push to main started (`github.workflow == 'CI'`).
+#   A release `workflow_call` inherits that caller's push/main context, so the name gate keeps it restore-only.
 # - `check` needs `if: always()`: a skipped job reports success, so without it a failed area would leave the gate green.
 name: CI
 
@@ -15,6 +20,13 @@ on:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check out. Empty uses the caller ref.
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
 
 permissions:
@@ -38,14 +50,20 @@ jobs:
     outputs:
       app: ${{ steps.areas.outputs.app }}
       lint: ${{ steps.areas.outputs.lint }}
+      sha: ${{ steps.commit.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: 2 # the merge commit and its base parent
           persist-credentials: false
+      - id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - id: areas
+        env:
+          CHECKOUT_REF: ${{ inputs.ref }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+          if [ "$GITHUB_EVENT_NAME" != pull_request ] || [ -n "$CHECKOUT_REF" ]; then
             { echo "app=true"; echo "lint=true"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -67,10 +85,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
-          cache_save: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          cache_save: ${{ github.workflow == 'CI' && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
       - id: go-paths
         run: |
           {
@@ -85,7 +104,7 @@ jobs:
           key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
           restore-keys: go-${{ runner.os }}-
       - run: mise run check
-      - if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      - if: github.workflow == 'CI' && github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -105,10 +124,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
-          cache_save: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          cache_save: ${{ github.workflow == 'CI' && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
       - id: go-paths
         shell: bash
         run: |
@@ -129,7 +149,7 @@ jobs:
       - name: Test
         if: runner.os == 'Windows'
         run: go test ./...
-      - if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      - if: github.workflow == 'CI' && github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -168,10 +188,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
-          cache_save: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          cache_save: ${{ github.workflow == 'CI' && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
       - id: go-paths
         shell: bash
         run: |
@@ -212,7 +233,7 @@ jobs:
           path: |
             px-go-${{ matrix.suffix }}${{ matrix.ext }}
             pxw-go-${{ matrix.suffix }}${{ matrix.ext }}
-      - if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      - if: github.workflow == 'CI' && github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -227,6 +248,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - name: actionlint
         run: |
@@ -241,6 +263,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - name: renovate-config-validator
         run: npx --yes --package "renovate@${RENOVATE_VERSION}" -- renovate-config-validator --strict
@@ -255,6 +278,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
         with:

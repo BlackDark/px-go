@@ -60,6 +60,10 @@ checksum:
 release:
   draft: false
   prerelease: auto
+  # release-please already wrote the title and notes; the workflow refuses a missing release
+  mode: keep-existing
+  # a retry after a partial upload replaces assets already on the release
+  replace_existing_artifacts: true
 
 dockers_v2:
   - ids: [px]
