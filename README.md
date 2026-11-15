@@ -106,9 +106,7 @@ Contributor notes: [AGENTS.md](AGENTS.md).
 
 ---
 
-<div align="center"><sub>
-
-[Report a bug](https://github.com/BlackDark/px-go/issues/new) · License: [Apache-2.0](LICENSE)<br>
-px-go is not affiliated with genotrance/px.
-
-</sub></div>
+<p align="center">
+<a href="https://github.com/BlackDark/px-go/issues/new">Report a bug</a> · License: <a href="LICENSE">Apache-2.0</a><br>
+<sub>px-go is not affiliated with genotrance/px.</sub>
+</p>
