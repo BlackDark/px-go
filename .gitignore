@@ -24,3 +24,6 @@ Thumbs.db
 
 # Build output
 dist/
+
+# mise local overrides
+mise.local.toml
