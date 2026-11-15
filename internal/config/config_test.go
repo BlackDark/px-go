@@ -1,11 +1,13 @@
 package config
 
 import (
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func TestLoadPrecedence(t *testing.T) {
@@ -333,5 +335,233 @@ func TestLoadIgnoresMissingPxConfig(t *testing.T) {
 	}
 	if cfg.Proxy.Port != 3333 {
 		t.Fatalf("port = %d, want 3333 from discovery", cfg.Proxy.Port)
+	}
+}
+
+func TestTOMLExplicitZeroAndFraction(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "px.toml")
+	content := `
+[settings]
+idle = 0
+socktimeout = 0.04
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load([]string{"--config=" + path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Settings.Idle != 0 {
+		t.Fatalf("idle = %s, want 0", cfg.Settings.Idle)
+	}
+	if cfg.Settings.SockTimeout != 40*time.Millisecond {
+		t.Fatalf("socktimeout = %s, want 40ms", cfg.Settings.SockTimeout)
+	}
+	if cfg.Settings.Threads != 128 {
+		t.Fatalf("omitted threads = %d, want default 128", cfg.Settings.Threads)
+	}
+}
+
+func TestTOMLPortZeroFailsValidation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "px.toml")
+	if err := os.WriteFile(path, []byte("[proxy]\nport = 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load([]string{"--config=" + path}); err == nil {
+		t.Fatal("port 0 must fail validation")
+	}
+}
+
+func TestINISockTimeoutFractionRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "px.ini")
+	cfg := Default()
+	cfg.Settings.SockTimeout = 40 * time.Millisecond
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load([]string{"--config=" + path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Settings.SockTimeout != 40*time.Millisecond {
+		t.Fatalf("socktimeout = %s, want 40ms", loaded.Settings.SockTimeout)
+	}
+}
+
+func TestRelativePACSaveDoesNotNest(t *testing.T) {
+	root := t.TempDir()
+	conf := filepath.Join(root, "conf")
+	if err := os.Mkdir(conf, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(conf, "proxy.pac"), []byte("DIRECT"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(conf, "px.toml"), []byte("[proxy]\npac = \"proxy.pac\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+
+	want, err := filepath.Abs(filepath.Join("conf", "proxy.pac"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load([]string{"--config=conf/px.toml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Proxy.PAC != want {
+		t.Fatalf("pac = %q, want %q", cfg.Proxy.PAC, want)
+	}
+	if err := cfg.Save(filepath.Join(conf, "px.toml")); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Load([]string{"--config=conf/px.toml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Proxy.PAC != want {
+		t.Fatalf("reloaded pac = %q, want %q", again.Proxy.PAC, want)
+	}
+}
+
+func TestLoadRejectsBadEnvPort(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("PX_PORT", "nope")
+	if _, err := Load(nil); err == nil {
+		t.Fatal("invalid PX_PORT must fail startup")
+	}
+}
+
+func TestOmittedAllowKeepsDefault(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		file string
+	}{
+		{name: "ini", body: "[proxy]\nport = 3128\n", file: "px.ini"},
+		{name: "toml", body: "[proxy]\nport = 3128\n", file: "px.toml"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, tc.file)
+			if err := os.WriteFile(path, []byte(tc.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load([]string{"--config=" + path})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Proxy.Allow != "*.*.*.*" {
+				t.Fatalf("allow = %q", cfg.Proxy.Allow)
+			}
+		})
+	}
+}
+
+func TestExplicitEmptyAllowIsKept(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		file string
+	}{
+		{name: "ini", body: "[proxy]\nallow =\n", file: "px.ini"},
+		{name: "toml", body: "[proxy]\nallow = \"\"\n", file: "px.toml"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, tc.file)
+			if err := os.WriteFile(path, []byte(tc.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load([]string{"--config=" + path})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Proxy.Allow != "" {
+				t.Fatalf("allow = %q", cfg.Proxy.Allow)
+			}
+		})
+	}
+}
+
+func TestWriteFileAtomicKeepsMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not keep Unix permission bits")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "px.toml")
+	if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(path, func(f *os.File) error {
+		_, err := f.WriteString("new")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %o", info.Mode().Perm())
+	}
+}
+
+func TestWriteFileAtomicNewFileIsPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not keep Unix permission bits")
+	}
+	path := filepath.Join(t.TempDir(), "px.toml")
+	if err := writeFileAtomic(path, func(f *os.File) error {
+		_, err := f.WriteString("new")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %o", info.Mode().Perm())
+	}
+}
+
+func TestWriteFileAtomicKeepsOriginalOnError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "px.toml")
+	if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := writeFileAtomic(path, func(f *os.File) error {
+		if _, werr := f.WriteString("partial"); werr != nil {
+			return werr
+		}
+		return errors.New("disk full")
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "original" {
+		t.Fatalf("file = %q", got)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("leftover files: %d", len(entries))
 	}
 }
