@@ -1,0 +1,43 @@
+# Release PR on every push to main (from BlackDark/agent-presets).
+# Conventional Commits drive the version and CHANGELOG.md. Merging the release PR tags vX.Y.Z
+# and opens the GitHub release. A tag pushed with GITHUB_TOKEN starts no workflows, so publish
+# calls release.yml with that tag.
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write # release PR labels
+    outputs:
+      created: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - id: rp
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.created == 'true'
+    uses: ./.github/workflows/release.yml # zizmor: ignore[self-repository] actionlint rejects `$/`
+    permissions:
+      contents: write
+      packages: write
+    with:
+      tag: ${{ needs.release-please.outputs.tag }}
