@@ -7,15 +7,20 @@ min_version = "2024.1.0"
     "go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
 
 [tasks.check]
-description = "Format, vet, lint, build, test, vulnerability scan"
+description = "Format, tidy, vet, lint, build, test, vulnerability scan"
 run = [
     'test -z "$(gofmt -l .)"',
+    "go mod tidy -diff",
     "go vet ./...",
     "golangci-lint run ./...",
     "go build ./...",
     "go test -race ./...",
     "govulncheck ./...",
 ]
+
+[tasks.docker-build]
+description = "Build the local image px-go:local"
+run = "docker build -f docker/Dockerfile -t px-go:local ."
 
 [settings]
     experimental = true
