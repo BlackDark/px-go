@@ -4,7 +4,7 @@ Go reimplementation of [px](https://github.com/genotrance/px): a local proxy tha
 
 ## Verify
 
-`mise run check` green before every commit: gofmt, `go vet`, golangci-lint, build, race tests, govulncheck. CI runs the same task on Ubuntu, plus `go test` on macOS and Windows.
+`mise run check` green before every commit: gofmt, `go mod tidy -diff`, `go vet`, golangci-lint, build, race tests, govulncheck. CI runs the same task on Ubuntu, plus `go test` on macOS and Windows.
 
 Extra checks:
 - Proxy integration tests after proxy changes: `go test -v ./internal/proxy/ -run TestIntegration`
@@ -20,7 +20,7 @@ Follows https://github.com/BlackDark/agent-presets/blob/main/stack/core.md (Go b
 
 Deviations:
 - Go toolchain and tools pinned in `.mise.toml`. The `go` directive in `go.mod` equals the mise pin (Renovate bumps both in one PR).
-- `goreleaser` for release binaries; no framework.
+- release-please opens the release PR and the GitHub release from Conventional Commits. Goreleaser, called with that tag, attaches binaries and the GHCR image. Kept because releases include a Windows console build and a headless build (`pxw-go`). No app framework.
 - Frozen dependency: `github.com/bigkraig/go-ntlm` (see `.github/renovate.json5`).
 
 ## Map
@@ -60,7 +60,7 @@ Same PR, only what the change touches:
 
 ## Stewardship
 
-Leave touched areas cleaner than found. Small fixes beside the change go in their own commit in the same PR. Larger problems: report with `file:line`, keep the PR on topic.
+Leave touched areas cleaner than found. Small fixes beside the change go in their own commit in the same PR. Whatever the change makes obsolete (code, flags, config, docs, deps) goes in the same PR. Larger problems: report with `file:line`, keep the PR on topic.
 
 ## Git
 
@@ -77,6 +77,7 @@ Leave touched areas cleaner than found. Small fixes beside the change go in thei
 ## Gotchas
 
 - Windows headless build (`-H=windowsgui`) has no console: file logging is required (`log=1` or `log_file`).
+- release-please `bootstrap-sha` is `1a15202` (the commit `v0.4.1` points at; the tag object is not a commit). The next release includes later commits. Delete `bootstrap-sha` once that release is out.
 - Config keys for agent workloads (recommended):
 
 ```ini
